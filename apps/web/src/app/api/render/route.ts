@@ -630,7 +630,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   let showBranding=true;
-  if(body.showBranding===false){try{const authorization=request.headers.get("authorization")??"",apiUrl=process.env.API_URL??"http://localhost:4000/api/v1",response=await fetch(`${apiUrl}/auth/me`,{headers:{authorization},cache:"no-store"}),account=response.ok?await response.json():null;showBranding=!(account?.role==="ADMIN"||account?.hasPaid===true)}catch{showBranding=true}}
+  if(body.showBranding===false){try{const authorization=request.headers.get("authorization")??"",apiUrl=process.env.API_URL??"https://drishyana-api.onrender.com/api/v1",response=await fetch(`${apiUrl}/auth/me`,{headers:{authorization},cache:"no-store"}),account=response.ok?await response.json():null;showBranding=!(account?.role==="ADMIN"||account?.hasPaid===true)}catch{showBranding=true}}
   if (body.useRelatedVideos) {
     const authorization = request.headers.get("authorization");
     if (!authorization)
@@ -641,7 +641,7 @@ export async function POST(request: NextRequest) {
         { status: 403 },
       );
     try {
-      const apiUrl = process.env.API_URL ?? "http://localhost:4000/api/v1",
+      const apiUrl = process.env.API_URL ?? "https://drishyana-api.onrender.com/api/v1",
         entitlement = await fetch(`${apiUrl}/auth/me`, {
           headers: { authorization },
           cache: "no-store",

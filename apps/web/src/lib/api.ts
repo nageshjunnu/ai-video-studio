@@ -1,4 +1,4 @@
-export const API=process.env.NEXT_PUBLIC_API_URL??'http://localhost:4000/api/v1';
+export const API=process.env.NEXT_PUBLIC_API_URL??'https://drishyana-api.onrender.com/api/v1';
 export type Session={accessToken:string;user:{id:string;fullName:string;email:string;role:string;credits:number}};
 export function session(){if(typeof window==='undefined')return null;try{return JSON.parse(localStorage.getItem('kathaforge_session')||'null') as Session|null}catch{return null}}
 export function saveSession(value:Session){localStorage.setItem('kathaforge_session',JSON.stringify(value))}

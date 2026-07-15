@@ -11,7 +11,7 @@ async function captionText(baseUrl:string){const headers={'user-agent':'Mozilla/
  const srv3=[...xml.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/g)].map(match=>decode(match[1])).join(' ');return srv3.replace(/\s+/g,' ').trim()
 }
 export async function POST(request:NextRequest){try{
- const auth=request.headers.get('authorization')||'',api=process.env.NEXT_PUBLIC_API_URL??'http://localhost:4000/api/v1',accessResponse=await fetch(`${api}/creator-tools/access`,{headers:{authorization:auth},cache:'no-store'}),access=await responseJson(accessResponse);
+ const auth=request.headers.get('authorization')||'',api=process.env.NEXT_PUBLIC_API_URL??'https://drishyana-api.onrender.com/api/v1',accessResponse=await fetch(`${api}/creator-tools/access`,{headers:{authorization:auth},cache:'no-store'}),access=await responseJson(accessResponse);
  if(!accessResponse.ok||!access)return NextResponse.json({error:'The API is unavailable or authentication has expired. Please sign in again.'},{status:accessResponse.status||503});
  if(!access.available?.videoTranscript)return NextResponse.json({error:`Video transcription is disabled or requires at least ${access.minimumCredits} credits.`},{status:403});
  const body=await request.json(),url=String(body.url??''),language=String(body.language??'en'),id=videoId(url);if(!id)return NextResponse.json({error:'Enter a valid YouTube video URL.'},{status:400});
