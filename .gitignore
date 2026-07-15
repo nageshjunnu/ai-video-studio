@@ -1,0 +1,16 @@
+node_modules
+.DS_Store
+gitproject/
+Archive*.zip
+.next
+.env
+dist
+coverage
+*.log
+apps/web/public/renders/*.mp4
+apps/web/public/trash/*.mp4
+.venv
+models/piper/*.onnx
+models/piper/*.json
+apps/web/public/uploads/voices/*
+apps/web/public/uploads/media/*

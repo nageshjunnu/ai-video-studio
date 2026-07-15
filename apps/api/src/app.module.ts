@@ -1,0 +1,4 @@
+import { Module } from '@nestjs/common'; import { JwtModule } from '@nestjs/jwt'; import { AuthController,AuthService,JwtGuard } from './auth'; import { PrismaService } from './prisma.service'; import { AdminController,CreditsController,DashboardController,DynamicProjectsController } from './domain.controller';
+import {AdminInsightsController,CreatorToolsController,TemplatesController} from './platform.controller';
+import {AdminNotificationsController,NotificationsController} from './notifications.controller';
+@Module({imports:[JwtModule.register({global:true,secret:process.env.JWT_SECRET??'local-development-secret-change-me-32',signOptions:{expiresIn:'7d'}})],controllers:[AuthController,DynamicProjectsController,DashboardController,CreditsController,AdminController,TemplatesController,CreatorToolsController,AdminInsightsController,NotificationsController,AdminNotificationsController],providers:[PrismaService,AuthService,JwtGuard]}) export class AppModule{}

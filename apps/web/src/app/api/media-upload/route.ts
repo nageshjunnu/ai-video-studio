@@ -1,0 +1,6 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { extname, join } from 'node:path';
+export const runtime='nodejs';
+const allowed=new Set(['video/mp4','video/quicktime','video/webm','image/jpeg','image/png','image/webp']);
+export async function POST(request:NextRequest){try{const form=await request.formData(),files=form.getAll('media').filter(v=>v instanceof File) as File[];if(!files.length)return NextResponse.json({error:'Select images or videos.'},{status:400});if(files.length>12)return NextResponse.json({error:'Upload a maximum of 12 files.'},{status:400});const dir=join(process.cwd(),'public','uploads','media');await mkdir(dir,{recursive:true});const uploaded=[];for(const file of files){if(file.size>100*1024*1024)continue;if(!allowed.has(file.type))continue;const name=`${crypto.randomUUID()}${extname(file.name).toLowerCase()}`,url=`/uploads/media/${name}`;await writeFile(join(dir,name),Buffer.from(await file.arrayBuffer()));uploaded.push({url,name:file.name,type:file.type})}if(!uploaded.length)return NextResponse.json({error:'Use MP4, MOV, WebM, JPG, PNG, or WebP under 100 MB.'},{status:415});return NextResponse.json({files:uploaded})}catch{return NextResponse.json({error:'Media upload failed.'},{status:500})}}

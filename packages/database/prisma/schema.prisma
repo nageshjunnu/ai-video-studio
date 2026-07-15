@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+enum Role {
+  ADMIN
+  CUSTOMER
+  TEST_USER
+}
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+enum ProjectStatus {
+  DRAFT
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  ARCHIVED
+}
+enum RenderStatus {
+  QUEUED
+  PREPARING
+  VOICE
+  MEDIA
+  SUBTITLES
+  COMPOSING
+  RENDERING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+enum CreditType {
+  REGISTRATION
+  VIDEO_RENDER
+  PURCHASE
+  ADMIN_ADJUSTMENT
+  REFUND
+}
+enum TransactionDirection {
+  CREDIT
+  DEBIT
+}
+enum PurchaseStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+model User {
+  id                     String              @id @default(cuid())
+  fullName               String
+  email                  String              @unique
+  mobile                 String?
+  passwordHash           String
+  role                   Role                @default(CUSTOMER)
+  credits                Int                 @default(1000)
+  status                 AccountStatus       @default(ACTIVE)
+  emailVerified          Boolean             @default(false)
+  emailVerificationToken String?             @unique
+  resetToken             String?             @unique
+  resetTokenExpiresAt    DateTime?
+  lastLoginAt            DateTime?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  profile                UserProfile?
+  projects               VideoProject[]
+  transactions           CreditTransaction[]
+  purchases              Purchase[]
+  notifications          Notification[]
+  auditLogs              AuditLog[]          @relation("ActorAuditLogs")
+}
+model UserProfile {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avatarUrl         String?
+  organization      String?
+  preferredLanguage String   @default("te")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+model VideoProject {
+  id               String        @id @default(cuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  script           String        @db.Text
+  voice            String
+  language         String        @default("te")
+  format           String        @default("16:9")
+  template         String        @default("heritage")
+  subtitleSettings Json?
+  musicSettings    Json?
+  mediaFiles       Json?
+  status           ProjectStatus @default(DRAFT)
+  progress         Int           @default(0)
+  creditsConsumed  Int           @default(0)
+  finalVideoUrl    String?
+  thumbnailUrl     String?
+  archivedAt       DateTime?
+  deletedAt        DateTime?
+  purgeAfter       DateTime?
+  visibility       String        @default("VISIBLE")
+  hiddenFromUserIds Json?
+  targetUserIds     Json?
+  country          String        @default("GLOBAL")
+  viewCount        Int           @default(0)
+  scenes           VideoScene[]
+  renderJobs       RenderJob[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  @@index([purgeAfter])
+  @@index([country])
+}
+model VideoScene {
+  id        String       @id @default(cuid())
+  projectId String
+  project   VideoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  position  Int
+  title     String?
+  content   String       @db.Text
+  mediaUrl  String?
+  duration  Float        @default(5)
+  settings  Json?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  @@unique([projectId, position])
+}
+model MediaAsset {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  url         String
+  mimeType    String
+  size        Int
+  source      String
+  license     String?
+  attribution String?
+  createdAt   DateTime @default(now())
+  @@index([userId])
+}
+model Voiceover {
+  id        String   @id @default(cuid())
+  projectId String
+  voice     String
+  language  String
+  url       String
+  duration  Float
+  createdAt DateTime @default(now())
+  @@index([projectId])
+}
+model RenderJob {
+  id          String       @id @default(cuid())
+  projectId   String
+  project     VideoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status      RenderStatus @default(QUEUED)
+  progress    Int          @default(0)
+  error       String?
+  outputUrl   String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+model CreditTransaction {
+  id           String               @id @default(cuid())
+  userId       String
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount       Int
+  direction    TransactionDirection
+  type         CreditType
+  description  String
+  balanceAfter Int
+  referenceId  String?
+  createdAt    DateTime             @default(now())
+  @@index([userId, createdAt])
+}
+model CreditPackage {
+  id           String     @id @default(cuid())
+  name         String
+  credits      Int
+  priceInPaise Int
+  active       Boolean    @default(true)
+  purchases    Purchase[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+model Purchase {
+  id            String         @id @default(cuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId     String
+  package       CreditPackage  @relation(fields: [packageId], references: [id])
+  credits       Int
+  amountInPaise Int
+  status        PurchaseStatus @default(PENDING)
+  provider      String         @default("TEST")
+  externalId    String?
+  transactionId String?        @unique
+  submittedAt   DateTime?
+  approvedBy    String?
+  notes         String?
+  createdAt     DateTime       @default(now())
+  completedAt   DateTime?
+}
+model Subscription {
+  id        String    @id @default(cuid())
+  userId    String
+  plan      String
+  status    String
+  startsAt  DateTime
+  endsAt    DateTime?
+  createdAt DateTime  @default(now())
+  @@index([userId])
+}
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  type      String    @default("INFO")
+  actionUrl String?
+  readAt    DateTime?
+  dismissedAt DateTime?
+  createdAt DateTime  @default(now())
+}
+model AdminSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+}

@@ -1,0 +1,17 @@
+.premium-media-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #bba7f1;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f7f2ff, #eefaff);
+  text-align: left;
+}
+.premium-media-option > input { accent-color: #7048d7; }
+.premium-media-option > span { display: flex; flex: 1; flex-direction: column; }
+.premium-media-option b { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #51339d; }
+.premium-media-option small { margin-top: 2px; font-size: 8px; color: var(--muted); }
+.premium-media-option.locked { border-color: #ded9e5; background: #f7f6f9; color: #8d8498; }
+.premium-media-option.locked button { border: 0; border-radius: 7px; background: #7048d7; color: #fff; padding: 6px 9px; font-size: 8px; }
