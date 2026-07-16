@@ -668,12 +668,14 @@ export async function POST(request: NextRequest) {
   }
   const id = crypto.randomUUID(),
     work = join(tmpdir(), `drishyana-${id}`),
-    useBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN),
+    useBlob = Boolean(
+      process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN,
+    ),
     outputDir = useBlob ? work : join(process.cwd(), "public", "renders");
   try {
     if (process.env.VERCEL && !useBlob)
       throw new Error(
-        "Vercel Blob is not connected. Add BLOB_READ_WRITE_TOKEN to this project and redeploy.",
+        "Vercel Blob is not connected. Connect the Blob store to this project and redeploy.",
       );
     await mkdir(work, { recursive: true });
     await mkdir(outputDir, { recursive: true });
