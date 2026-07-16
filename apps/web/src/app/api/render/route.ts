@@ -31,6 +31,7 @@ type RenderInput = {
   useRelatedVideos?: boolean;
   templateOnly?: boolean;
   showBranding?: boolean;
+  showEngagementCta?: boolean;
   imageAnimation?: "none" | "zoom" | "pan" | "fade";
 };
 
@@ -383,11 +384,11 @@ async function pixabayVideo(query:string,outputBase:string,seed:number,portrait:
 }
 async function pexelsImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
   const key=process.env.PEXELS_API_KEY;if(!key)return null;
-  try{const params=new URLSearchParams({query,orientation:portrait?"portrait":"landscape",size:"large",per_page:"30"}),response=await fetch(`https://api.pexels.com/v1/search?${params}`,{headers:{Authorization:key},signal:AbortSignal.timeout(10000)});if(!response.ok)return null;const data=await response.json(),photos=(data.photos??[]).filter((photo:any)=>photo.src?.large2x&&!used.has(photo.url)),photo=photos[seed%Math.max(1,photos.length)];if(!photo)return null;const image=await fetch(photo.src.original||photo.src.large2x,{signal:AbortSignal.timeout(18000)});if(!image.ok)return null;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)return null;await writeFile(output,bytes);used.add(photo.url);return{title:photo.alt||query,source:photo.url,artist:photo.photographer||"Pexels contributor",license:"Pexels License"}}catch{return null}
+  for(const search of providerQueries(query)){try{const params=new URLSearchParams({query:search,orientation:portrait?"portrait":"landscape",size:"large",per_page:"30"}),response=await fetch(`https://api.pexels.com/v1/search?${params}`,{headers:{Authorization:key},signal:AbortSignal.timeout(process.env.VERCEL?4500:10000)});if(!response.ok)continue;const data=await response.json(),photos=(data.photos??[]).filter((photo:any)=>photo.src?.large2x&&!used.has(photo.url)),photo=photos[seed%Math.max(1,photos.length)];if(!photo)continue;const image=await fetch(photo.src.original||photo.src.large2x,{signal:AbortSignal.timeout(process.env.VERCEL?6500:18000)});if(!image.ok)continue;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)continue;await writeFile(output,bytes);used.add(photo.url);return{title:photo.alt||search,source:photo.url,artist:photo.photographer||"Pexels contributor",license:"Pexels License"}}catch{continue}}return null
 }
 async function pexelsVideo(query:string,outputBase:string,seed:number,portrait:boolean):Promise<{path:string;credit:MediaCredit}|null>{
   const key=process.env.PEXELS_API_KEY;if(!key)return null;
-  try{const params=new URLSearchParams({query,orientation:portrait?"portrait":"landscape",size:"medium",per_page:"20"}),response=await fetch(`https://api.pexels.com/v1/videos/search?${params}`,{headers:{Authorization:key},signal:AbortSignal.timeout(10000)});if(!response.ok)return null;const data=await response.json(),videos=(data.videos??[]).filter((video:any)=>(video.video_files??[]).some((file:any)=>file.link&&file.width>=720)),video=videos[seed%Math.max(1,videos.length)];if(!video)return null;const files=(video.video_files??[]).filter((file:any)=>file.link&&file.width>=720&&file.file_type==="video/mp4").sort((a:any,b:any)=>Math.abs((a.width||0)-1280)-Math.abs((b.width||0)-1280)),selected=files[0];if(!selected)return null;const media=await fetch(selected.link,{signal:AbortSignal.timeout(25000)});if(!media.ok)return null;const bytes=Buffer.from(await media.arrayBuffer());if(!bytes.length||bytes.length>45_000_000)return null;const path=`${outputBase}.mp4`;await writeFile(path,bytes);return{path,credit:{title:`${query} video`,source:video.url,artist:video.user?.name||"Pexels contributor",license:"Pexels License"}}}catch{return null}
+  for(const search of providerQueries(query)){try{const maxSize=process.env.VERCEL?18_000_000:45_000_000,params=new URLSearchParams({query:search,orientation:portrait?"portrait":"landscape",size:"medium",per_page:"20"}),response=await fetch(`https://api.pexels.com/v1/videos/search?${params}`,{headers:{Authorization:key},signal:AbortSignal.timeout(process.env.VERCEL?4500:10000)});if(!response.ok)continue;const data=await response.json(),videos=(data.videos??[]).filter((video:any)=>(video.video_files??[]).some((file:any)=>file.link&&file.width>=640)),video=videos[seed%Math.max(1,videos.length)];if(!video)continue;const files=(video.video_files??[]).filter((file:any)=>file.link&&file.width>=640&&file.file_type==="video/mp4"&&Number(file.size||0)<=maxSize).sort((a:any,b:any)=>Math.abs((a.width||0)-1280)-Math.abs((b.width||0)-1280)),selected=files[0];if(!selected)continue;const media=await fetch(selected.link,{signal:AbortSignal.timeout(process.env.VERCEL?9000:25000)});if(!media.ok)continue;const bytes=Buffer.from(await media.arrayBuffer());if(!bytes.length||bytes.length>maxSize)continue;const path=`${outputBase}.mp4`;await writeFile(path,bytes);return{path,credit:{title:`${search} video`,source:video.url,artist:video.user?.name||"Pexels contributor",license:"Pexels License"}}}catch{continue}}return null
 }
 function isRelevant(query: string, page: any, info: any) {
   const ignored = new Set([
@@ -805,6 +806,7 @@ export async function POST(request: NextRequest) {
     }
   }
   const id = crypto.randomUUID(),
+    startedAt = Date.now(),
     work = join(tmpdir(), `drishyana-${id}`),
     useBlob = Boolean(
       process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN,
@@ -883,13 +885,14 @@ export async function POST(request: NextRequest) {
       await run(ffmpeg.path,["-i",narration,"-filter:a","aresample=44100,asetrate=51000,aresample=44100,atempo=0.92","-ac","1","-y",childNarration]);
       narration=childNarration;
     }
-    const storyScenes = compactScenes(
+    const shortScript = [...script].length <= 450,
+      storyScenes = compactScenes(
         scenesFrom(script),
-        process.env.VERCEL ? 10 : 48,
+        shortScript ? 3 : process.env.VERCEL ? 6 : 18,
       ),
       scenes = hasTitle
         ? [title, ...storyScenes]
-        : storyScenes,
+        : [...storyScenes],
       audioDuration = hasAudio ? await duration(narration) : 0;
     const weights = scenes.map((s, i) =>
         hasTitle && i === 0
@@ -897,16 +900,29 @@ export async function POST(request: NextRequest) {
           : Math.max(30, [...s].length),
       ),
       weightTotal = weights.reduce((a, b) => a + b, 0);
-    const sceneDurations = weights.map((weight) =>
-      hasAudio
-        ? Math.max(2.8, ((audioDuration + 0.8) * weight) / weightTotal)
+    let sceneDurations = weights.map((weight, index) =>
+      hasTitle && index === 0
+        ? Math.min(10, Math.max(4, process.env.VERCEL ? 5 : 7))
+        : hasAudio
+        ? process.env.VERCEL
+          ? Math.max(2.2, Math.min(7, ((audioDuration + 0.8) * weight) / weightTotal))
+          : Math.max(2.8, ((audioDuration + 0.8) * weight) / weightTotal)
         : process.env.VERCEL
-          ? Math.max(3.5, Math.min(8, weight / 13))
+          ? Math.max(2.6, Math.min(5.5, weight / 16))
           : Math.max(3.5, weight / 13),
     );
+    const ctaSceneIndexes = new Set<number>();
+    if (body.showEngagementCta !== false) {
+      ctaSceneIndexes.add(scenes.length);
+      scenes.push("Enjoyed this story?\nSubscribe for more thoughtful videos.");
+      sceneDurations.push(process.env.VERCEL ? 3 : 4);
+      ctaSceneIndexes.add(scenes.length);
+      scenes.push("Share this with someone who loves meaningful stories.");
+      sceneDurations.push(process.env.VERCEL ? 3 : 4);
+    }
     const portrait = body.format === "9:16",
       square = body.format === "1:1",
-      renderFps = process.env.VERCEL ? 12 : 24;
+      renderFps = process.env.VERCEL ? 10 : 24;
     const [w, h] = portrait ? [720, 1280] : square ? [1080, 1080] : [1280, 720];
     const uploaded = (body.uploadedMediaUrls ?? [])
       .filter((v) => v.startsWith("/uploads/media/"))
@@ -917,13 +933,14 @@ export async function POST(request: NextRequest) {
     const slides: string[] = [];
     const captions: string[] = [];
     const credits: MediaCredit[] = [];
+    const downloadedImages: string[] = [];
     const usedImages = new Set<string>();
     let relatedVideosUsed = 0,
       imageDownloads = 0;
     const randomOffset = Math.floor(Math.random() * 1000),
       globalKeywords = scriptKeywords(title, script),
-      promptLimit = process.env.VERCEL ? 6 : 16,
-      mediaDeadline = Date.now() + (process.env.VERCEL ? 35_000 : 240_000);
+      promptLimit = shortScript ? 0 : process.env.VERCEL ? 4 : 8,
+      mediaDeadline = Date.now() + (shortScript ? process.env.VERCEL ? 10_000 : 14_000 : process.env.VERCEL ? 25_000 : 75_000);
     const promptPlans = await Promise.all(
       scenes.slice(0, Math.min(scenes.length, promptLimit)).map(async (scene, i) => {
         const sceneImageQuery = mediaQuery(scene, i),
@@ -937,10 +954,12 @@ export async function POST(request: NextRequest) {
         return { sceneImageQuery, sceneVideoQuery, keywordContext, imageSearch: prompts.image, clipSearch: prompts.video };
       }),
     );
+    const mediaStartedAt = Date.now();
     for (let i = 0; i < scenes.length; i++) {
       let path = body.templateOnly && uploaded.length ? uploaded[i % uploaded.length] : i < uploaded.length ? uploaded[i] : undefined;
       if (!path) {
         path = join(work, `scene-${i}.ppm`);
+        if (!ctaSceneIndexes.has(i)) {
         const fallback = path,
           plan = promptPlans[i],
           sceneImageQuery = plan?.sceneImageQuery ?? mediaQuery(scenes[i], i),
@@ -949,11 +968,12 @@ export async function POST(request: NextRequest) {
           imageSearch = plan?.imageSearch ?? `${keywordContext} ${title.trim()} ${sceneImageQuery}`.trim(),
           clipSearch = plan?.clipSearch ?? `${keywordContext} ${title.trim()} ${sceneVideoQuery}`.trim(),
           storyIndex = i - (hasTitle ? 1 : 0),
-          maxRelatedVideos=process.env.VERCEL?4:Math.min(10,Math.ceil(storyScenes.length/2)),
+          maxRelatedVideos=process.env.VERCEL?1:Math.min(3,Math.ceil(storyScenes.length/4)),
           middleStart=Math.max(0,Math.floor(storyScenes.length*.25)),
           middleEnd=Math.max(middleStart,Math.ceil(storyScenes.length*.85)),
           tryVideo =
             !!body.useRelatedVideos &&
+            !shortScript &&
             Date.now() < mediaDeadline &&
             storyIndex >= 0 &&
             storyIndex >= middleStart &&
@@ -972,19 +992,24 @@ export async function POST(request: NextRequest) {
         if (
           path === fallback &&
           Date.now() < mediaDeadline &&
-          imageDownloads < (process.env.VERCEL ? 8 : 20)
+          imageDownloads < (process.env.VERCEL ? 6 : Math.min(14, scenes.length))
         ) {
           const candidate = join(work, `media-${imageDownloads}.jpg`);
           let credit = (await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages));
           if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages))??(await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages));
           if(!credit&&Date.now()<mediaDeadline)credit=await openverseImage(imageSearch,candidate,randomOffset+i+31,usedImages);
-          if(!credit&&!process.env.VERCEL&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
+          if(!credit&&!process.env.VERCEL&&imageDownloads<3&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
           imageDownloads++;
           if (credit) {
             path = candidate;
+            downloadedImages.push(candidate);
             credits.push(credit);
           }
         }
+        }
+      }
+      if (path.endsWith(".ppm") && downloadedImages.length && !ctaSceneIndexes.has(i)) {
+        path = downloadedImages[i % downloadedImages.length];
       }
       const caption = join(work, `caption-${i}.txt`);
       if (path.endsWith(".ppm")) {
@@ -1000,6 +1025,7 @@ export async function POST(request: NextRequest) {
       slides.push(path);
       captions.push(caption);
     }
+    const mediaMs = Date.now() - mediaStartedAt;
     const isVideo = (path: string) => /\.(mp4|mov|webm)$/i.test(path);
     const output = join(outputDir, `${id}.mp4`),
       args: string[] = [];
@@ -1017,7 +1043,8 @@ export async function POST(request: NextRequest) {
     );
     if (hasAudio) args.push("-i", narration);
     let music="";
-    if(body.backgroundMusicUrl){music=join(work,`background-music${body.backgroundMusicUrl.match(/\.[a-z0-9]+(?:\?|$)/i)?.[0]?.replace("?","")||".audio"}`);if(/^https:\/\//i.test(body.backgroundMusicUrl)){const response=await fetch(body.backgroundMusicUrl,{signal:AbortSignal.timeout(30000)});if(response.ok)await writeFile(music,Buffer.from(await response.arrayBuffer()))}else if(body.backgroundMusicUrl.startsWith("/uploads/voices/")){const local=join(process.cwd(),"public","uploads","voices",body.backgroundMusicUrl.split("/").pop()!);if(existsSync(local))await writeFile(music,await readFile(local))}}
+    const requestedMusicUrl=body.backgroundMusicUrl&&body.backgroundMusicUrl!==body.uploadedVoiceUrl?body.backgroundMusicUrl:"";
+    if(requestedMusicUrl){music=join(work,`background-music${requestedMusicUrl.match(/\.[a-z0-9]+(?:\?|$)/i)?.[0]?.replace("?","")||".audio"}`);if(/^https:\/\//i.test(requestedMusicUrl)){const response=await fetch(requestedMusicUrl,{signal:AbortSignal.timeout(30000)});if(response.ok)await writeFile(music,Buffer.from(await response.arrayBuffer()))}else if(requestedMusicUrl.startsWith("/uploads/voices/")){const local=join(process.cwd(),"public","uploads","voices",requestedMusicUrl.split("/").pop()!);if(existsSync(local))await writeFile(music,await readFile(local))}}
     const hasUploadedMusic = !!music && existsSync(music), musicPreset=body.backgroundMusicPreset, hasMusic=hasUploadedMusic||!!musicPreset;
     if (hasUploadedMusic) args.push("-stream_loop","-1","-i",music);
     else if(musicPreset){const tone=musicPreset==="cinematic"?"0.10*sin(2*PI*110*t)+0.045*sin(2*PI*165*t)+0.025*sin(2*PI*220*t)":"0.07*sin(2*PI*196*t)+0.035*sin(2*PI*293.66*t)+0.02*sin(2*PI*392*t)";args.push("-f","lavfi","-i",`aevalsrc=${tone}:s=44100`)}
@@ -1040,34 +1067,42 @@ export async function POST(request: NextRequest) {
     const filters = slides
       .map((_, i) => {
         const titleCard = hasTitle && i === 0,
-          cap = titleCard
+          endCard = ctaSceneIndexes.has(i),
+          centeredCard = titleCard || endCard,
+          cap = centeredCard
             ? `,drawtext=fontfile='${font}':textfile='${captions[i]}':fontcolor=white:fontsize=${w < h ? 48 : 58}:line_spacing=18:x=(w-text_w)/2:y=(h-text_h)/2:shadowcolor=black@0.9:shadowx=4:shadowy=4`
             : body.showCaptions === false
               ? ""
               : captionFilter.replace(captions[0], captions[i]);
-        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*renderFps)),still=!isVideo(slides[i]),base=`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`,motion=!still||body.imageAnimation==="none"||!body.imageAnimation?base:body.imageAnimation==="zoom"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,crop=${Math.round(w*1.12)}:${Math.round(h*1.12)},zoompan=z='min(zoom+0.0012,1.16)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${w}x${h}:fps=${renderFps},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.18)}:${Math.round(h*1.18)}:force_original_aspect_ratio=increase,crop=${Math.round(w*1.18)}:${Math.round(h*1.18)},zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=${frames}:s=${w}x${h}:fps=${renderFps},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:`${base},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
+        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : endCard ? "THANK YOU" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*renderFps)),still=!isVideo(slides[i]),base=`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`,motion=!still||body.imageAnimation==="none"||!body.imageAnimation?base:body.imageAnimation==="zoom"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,crop=${Math.round(w*1.12)}:${Math.round(h*1.12)},zoompan=z='min(zoom+0.0012,1.16)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=${renderFps},trim=duration=${sceneDurations[i]},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.18)}:${Math.round(h*1.18)}:force_original_aspect_ratio=increase,crop=${Math.round(w*1.18)}:${Math.round(h*1.18)},zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=1:s=${w}x${h}:fps=${renderFps},trim=duration=${sceneDurations[i]},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:`${base},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
         return `[${i}:v]${motion},setsar=1,format=yuv420p${cap}${branding}[v${i}]`;
       })
       .join(";");
     const refs = slides.map((_, i) => `[v${i}]`).join("");
     const audioFilters:string[]=[];
-    if(hasMusic){const musicIndex=slides.length+(hasAudio?1:0),volume=Math.max(0.02,Math.min(0.5,Number(body.backgroundMusicVolume??0.12)));audioFilters.push(`[${musicIndex}:a]volume=${volume}[bg]`);if(hasAudio)audioFilters.push(`[${slides.length}:a][bg]amix=inputs=2:duration=first:dropout_transition=2[a]`)}
+    if(hasMusic){const musicIndex=slides.length+(hasAudio?1:0),volume=Math.max(0.02,Math.min(0.5,Number(body.backgroundMusicVolume??0.12)));audioFilters.push(`[${musicIndex}:a]volume=${volume}[bg]`);if(hasAudio)audioFilters.push(`[${slides.length}:a][bg]amix=inputs=2:duration=longest:dropout_transition=2[a]`)}
     args.push(
       "-filter_complex",
       `${filters};${refs}concat=n=${slides.length}:v=1:a=0,format=yuv420p[v]${audioFilters.length?`;${audioFilters.join(';')}`:''}`,
       "-map",
       "[v]",
     );
-    if (hasAudio||hasMusic)
+    if (hasAudio||hasMusic) {
       args.push(
         "-map",
         hasAudio&&hasMusic?"[a]":hasMusic?"[bg]":`${slides.length}:a`,
-        "-shortest",
+      );
+      if (ctaSceneIndexes.size === 0) args.push("-shortest");
+      args.push(
         "-c:a",
         "aac",
         "-b:a",
         "160k",
       );
+    }
+    if (ctaSceneIndexes.size > 0) {
+      args.push("-t", String(sceneDurations.reduce((a, b) => a + b, 0).toFixed(2)));
+    }
     args.push(
       "-c:v",
       "libx264",
@@ -1080,7 +1115,9 @@ export async function POST(request: NextRequest) {
       "-y",
       output,
     );
+    const ffmpegStartedAt = Date.now();
     await run(ffmpeg.path, args);
+    const ffmpegMs = Date.now() - ffmpegStartedAt;
     const videoUrl = useBlob
       ? (
           await put(`renders/${id}.mp4`, await readFile(output), {
@@ -1103,6 +1140,11 @@ export async function POST(request: NextRequest) {
       language: telugu ? "Telugu" : "Auto",
       media: credits,
       relatedVideosUsed,
+      timings: {
+        totalMs: Date.now() - startedAt,
+        mediaMs,
+        ffmpegMs,
+      },
     });
   } catch (error) {
     return NextResponse.json(

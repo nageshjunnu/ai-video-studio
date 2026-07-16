@@ -122,6 +122,7 @@ export function Studio() {
   const [captionSize, setCaptionSize] = useState<"small" | "medium" | "large">(
     "small",
   );
+  const [showEngagementCta,setShowEngagementCta]=useState(true);
   const [uploadedMedia, setUploadedMedia] = useState<
     { url: string; name: string; type: string }[]
   >([]);
@@ -214,6 +215,20 @@ export function Studio() {
     "Balancing narration, music and readable captions",
     "Polishing your video into a beautiful final cut",
   ];
+  const renderStatus =
+    elapsed < 15
+      ? "Preparing your story and reserving credits"
+      : elapsed < 35
+        ? "Finding related visuals"
+        : elapsed < 75
+          ? "Building scenes and captions"
+          : elapsed < 180
+            ? "Encoding the final MP4"
+            : "Still encoding. Keep this page open";
+  const progressLabel =
+    rendering
+      ? `${progress}% complete`
+      : "";
   async function createVideo() {
     if (!script.trim()) {
       setStep(2);
@@ -225,16 +240,12 @@ export function Studio() {
     setProgress(5);
     setElapsed(0);
     const started = Date.now();
-    const estimatedSeconds = Math.max(
-      20,
-      Math.min(280, 15 + [...script].length / 32),
-    );
+    const estimatedSeconds = Math.max(35, Math.min(240, 25 + [...script].length / 24));
     let timer = window.setInterval(() => {
       const seconds = (Date.now() - started) / 1000;
       setElapsed(Math.floor(seconds));
-      setProgress(
-        Math.min(92, Math.round(5 + (seconds / estimatedSeconds) * 85)),
-      );
+      const softCap = seconds < estimatedSeconds ? 88 : seconds < estimatedSeconds * 1.35 ? 94 : 98;
+      setProgress(Math.min(softCap, Math.round(5 + (seconds / estimatedSeconds) * 83)));
     }, 1000);
     let projectId = "";
     try {
@@ -286,6 +297,7 @@ export function Studio() {
           captionSize,
           useRelatedVideos,
           showBranding: !(user?.role === "ADMIN" || user?.hasPaid),
+          showEngagementCta,
           imageAnimation,
         }),
       });
@@ -474,6 +486,7 @@ export function Studio() {
     setBackgroundMusicEnabled(true);
     setBackgroundMusicVolume(12);
     setShowCaptions(true);
+    setShowEngagementCta(true);
     setCaptionPosition("bottom");
     setCaptionSize("small");
     setUploadedMedia([]);
@@ -923,6 +936,19 @@ export function Studio() {
                       credits
                     </span>
                   </div>
+                  <label className="title-toggle engagement-toggle">
+                    <input
+                      type="checkbox"
+                      checked={showEngagementCta}
+                      onChange={(e) => setShowEngagementCta(e.target.checked)}
+                    />
+                    <span>
+                      <b>Add audience reminder</b>
+                      <small>
+                        Shows a short professional follow prompt near the end
+                      </small>
+                    </span>
+                  </label>
                 </>
               )}
               {step === 3 && (
@@ -1176,12 +1202,12 @@ export function Studio() {
                       <Sparkle />
                       <b>
                         {rendering
-                          ? `${progress >= 92 ? "Finalizing in the cloud" : "Rendering in the cloud"}… ${progress}%`
+                          ? progressLabel
                           : `Full script · ${script.split(/\n+/).filter((v) => v.trim()).length} sections`}
                       </b>
                       <span>
                         {rendering
-                          ? `${elapsed < 20 ? "Finding licensed images" : elapsed < 60 ? "Building and captioning scenes" : "FFmpeg is encoding the final MP4"} · ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")} elapsed`
+                          ? `${renderStatus} · ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")} elapsed`
                           : "Related licensed images and clips will be selected from Pixabay and open fallbacks."}
                       </span>
                       {rendering&&<div className="render-story-message"><Sparkle weight="fill"/><span key={Math.floor(elapsed/9)}>{renderMessages[Math.floor(elapsed/9)%renderMessages.length]}</span></div>}
