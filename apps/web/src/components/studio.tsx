@@ -104,15 +104,10 @@ export function Studio() {
   const [speed, setSpeed] = useState(180);
   const [style, setStyle] = useState("heritage");
   const [imageAnimation,setImageAnimation]=useState<"none"|"zoom"|"pan"|"fade">("zoom");
-  const [uploadedVoice, setUploadedVoice] = useState<{
-    url: string;
-    name: string;
-  } | null>(null);
   const [backgroundMusic,setBackgroundMusic]=useState<{url:string;name:string}|null>(null);
   const [backgroundMusicPreset,setBackgroundMusicPreset]=useState<""|"ambient"|"cinematic">("ambient");
   const [backgroundMusicEnabled,setBackgroundMusicEnabled]=useState(true);
   const [backgroundMusicVolume,setBackgroundMusicVolume]=useState(12);
-  const [uploadingVoice, setUploadingVoice] = useState(false);
   const [dictatingContent,setDictatingContent]=useState(false);
   const dictationRef=useRef<any>(null);
   const [showCaptions, setShowCaptions] = useState(true);
@@ -273,7 +268,6 @@ export function Studio() {
           voice,
           speed,
           style,
-          uploadedVoiceUrl: uploadedVoice?.url,
           backgroundMusicUrl: backgroundMusicEnabled?backgroundMusic?.url:undefined,
           backgroundMusicPreset: backgroundMusicEnabled&&!backgroundMusic?backgroundMusicPreset||undefined:undefined,
           backgroundMusicVolume: backgroundMusicVolume/100,
@@ -328,27 +322,6 @@ export function Studio() {
     } finally {
       window.clearInterval(timer);
       setRendering(false);
-    }
-  }
-  async function uploadVoice(file?: File) {
-    if (!file) return;
-    setUploadingVoice(true);
-    setRenderError("");
-    try {
-      const form = new FormData();
-      form.append("voice", file);
-      const response = await fetch("/api/voice-upload", {
-        method: "POST",
-        body: form,
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Upload failed");
-      setUploadedVoice(data);
-      setVoice("Uploaded");
-    } catch (error) {
-      setRenderError(error instanceof Error ? error.message : "Upload failed");
-    } finally {
-      setUploadingVoice(false);
     }
   }
   function previewVoice(name:string){
@@ -464,7 +437,6 @@ export function Studio() {
     setSpeed(180);
     setStyle("heritage");
     setImageAnimation("zoom");
-    setUploadedVoice(null);
     setBackgroundMusic(null);
     setBackgroundMusicPreset("ambient");
     setBackgroundMusicEnabled(true);
@@ -925,10 +897,7 @@ export function Studio() {
                 <>
                   <p className="eyebrow">STEP 3 OF 5</p>
                   <h2>Choose your story voice</h2>
-                  <p>
-                    Use an offline Telugu neural voice or upload your own
-                    narration.
-                  </p>
+                  <p>Choose a narration voice to read the final script from Step 2.</p>
                   <div className="option-grid voice-grid">
                     {[
                       {
@@ -949,39 +918,11 @@ export function Studio() {
                       { v: "Child English", t: "Junior", d: "English child style" },
                     ].map((o) => (
                       <div className="voice-card-wrap" key={o.v}><button
-                          className={voice === o.v && !uploadedVoice ? "selected" : ""}
-                          onClick={() => {setVoice(o.v);setUploadedVoice(null)}}
-                        ><strong>{o.t}</strong><small>{o.d}</small>{voice === o.v && !uploadedVoice && <CheckCircle weight="fill" />}</button><button className="voice-preview" onClick={()=>previewVoice(o.v)}>▶ Sample</button></div>
+                          className={voice === o.v ? "selected" : ""}
+                          onClick={() => setVoice(o.v)}
+                        ><strong>{o.t}</strong><small>{o.d}</small>{voice === o.v && <CheckCircle weight="fill" />}</button><button className="voice-preview" onClick={()=>previewVoice(o.v)}>▶ Sample</button></div>
                     ))}
                   </div>
-                  <label
-                    className={
-                      uploadedVoice ? "voice-upload active" : "voice-upload"
-                    }
-                  >
-                    <Microphone />
-                    <span>
-                      <b>
-                        {uploadingVoice
-                          ? "Uploading voice…"
-                          : uploadedVoice
-                            ? uploadedVoice.name
-                            : "Upload your own narration"}
-                      </b>
-                      <small>WAV, MP3, M4A, AAC or OGG · maximum 50 MB</small>
-                    </span>
-                    {uploadedVoice ? (
-                      <CheckCircle weight="fill" />
-                    ) : (
-                      <UploadSimple />
-                    )}
-                    <input
-                      type="file"
-                      accept="audio/wav,audio/mpeg,audio/mp4,audio/aac,audio/ogg,.m4a"
-                      disabled={uploadingVoice}
-                      onChange={(e) => uploadVoice(e.target.files?.[0])}
-                    />
-                  </label>
                   <label className="range-label">
                     <span>Speaking speed</span>
                     <b>{speed} words/min</b>
@@ -990,13 +931,12 @@ export function Studio() {
                       min="110"
                       max="200"
                       value={speed}
-                      disabled={!!uploadedVoice}
                       onChange={(e) => setSpeed(Number(e.target.value))}
                     />
                   </label>
                   <p className="local-note">
-                    Uploaded narration controls the final video duration. Ensure
-                    the script matches your recording for accurate scene timing.
+                    The selected voice reads only the final script. Microphone
+                    recording remains a content-to-text tool in Step 2.
                   </p>
                 </>
               )}
@@ -1176,7 +1116,7 @@ export function Studio() {
                       {video.media && video.media.length > 0 && (
                         <details className="media-credits">
                           <summary>
-                            {video.media.length} licensed Wikimedia visuals used
+                            {video.media.length} licensed story visuals used
                           </summary>
                           {video.media.map((m, i) => (
                             <a
@@ -1202,7 +1142,7 @@ export function Studio() {
                       <span>
                         {rendering
                           ? `${elapsed < 20 ? "Finding licensed images" : elapsed < 60 ? "Building and captioning scenes" : "FFmpeg is encoding the final MP4"} · ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")} elapsed`
-                          : "Related licensed images will be selected dynamically from Wikimedia Commons."}
+                          : "Related licensed images and clips will be selected from Pixabay and open fallbacks."}
                       </span>
                       {rendering&&<div className="render-story-message"><Sparkle weight="fill"/><span key={Math.floor(elapsed/9)}>{renderMessages[Math.floor(elapsed/9)%renderMessages.length]}</span></div>}
                       {rendering && (
@@ -1227,7 +1167,7 @@ export function Studio() {
                         <Sparkle /> Mix related story videos
                       </b>
                       <small>
-                        Premium · combines licensed Wikimedia clips and images
+                        Premium · combines topic-matched licensed clips and images
                         based on each scene
                       </small>
                     </span>

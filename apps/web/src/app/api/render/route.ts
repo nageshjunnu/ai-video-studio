@@ -20,7 +20,6 @@ type RenderInput = {
   voice?: string;
   speed?: number;
   style?: string;
-  uploadedVoiceUrl?: string;
   backgroundMusicUrl?: string;
   backgroundMusicPreset?: "ambient" | "cinematic";
   backgroundMusicVolume?: number;
@@ -732,17 +731,7 @@ export async function POST(request: NextRequest) {
           ? "te_IN-venkatesh-medium"
           : "te_IN-padmavathi-medium",
       model = join(root, "models", "piper", `${modelName}.onnx`);
-    if (body.uploadedVoiceUrl) {
-      const uploaded = join(work,`uploaded-narration${body.uploadedVoiceUrl.match(/\.[a-z0-9]+(?:\?|$)/i)?.[0]?.replace("?","")||".audio"}`);
-      if(/^https:\/\//i.test(body.uploadedVoiceUrl)){
-        const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});
-        if(response.ok)await writeFile(uploaded,Buffer.from(await response.arrayBuffer()));
-      }else if(body.uploadedVoiceUrl.startsWith("/uploads/voices/")){
-        const local=join(process.cwd(),"public","uploads","voices",body.uploadedVoiceUrl.split("/").pop()!);
-        if(existsSync(local))await writeFile(uploaded,await readFile(local));
-      }
-      if(existsSync(uploaded)){narration=uploaded;voice="Your recorded voice";hasAudio=true}
-    } else if (telugu && existsSync(piper) && existsSync(model)) {
+    if (telugu && existsSync(piper) && existsSync(model)) {
       narration = join(work, "narration.wav");
       try {
         const chunks = narrationChunks(cleanNarrationText), files: string[] = [];
@@ -845,7 +834,7 @@ export async function POST(request: NextRequest) {
             relatedVideosUsed < maxRelatedVideos &&
             storyIndex % 3 === 1;
         if (tryVideo) {
-          let result = await pixabayVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait)??await pexelsVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait)??await commonsVideo(clipSearch,join(work, `related-video-${relatedVideosUsed}`),randomOffset + i);
+          let result = await pixabayVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait)??await pexelsVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait);
           if (result) {
             path = result.path;
             credits.push(result.credit);
@@ -858,13 +847,8 @@ export async function POST(request: NextRequest) {
           imageDownloads < (process.env.VERCEL ? 8 : 20)
         ) {
           const candidate = join(work, `media-${imageDownloads}.jpg`);
-          let credit = (await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await commonsImage(
-              imageSearch,
-              candidate,
-              randomOffset + i,
-              usedImages,
-            )) ?? (await openverseImage(imageSearch,candidate,randomOffset+i,usedImages));
-          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await pixabayImage(sceneImageQuery,candidate,randomOffset+i+17,portrait,usedImages))??(await pexelsImage(sceneImageQuery,candidate,randomOffset+i+17,portrait,usedImages))??(await commonsImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages))??(await openverseImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages));
+          let credit = (await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await openverseImage(imageSearch,candidate,randomOffset+i,usedImages));
+          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await pixabayImage(sceneImageQuery,candidate,randomOffset+i+17,portrait,usedImages))??(await pexelsImage(sceneImageQuery,candidate,randomOffset+i+17,portrait,usedImages))??(await openverseImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages));
           imageDownloads++;
           if (credit) {
             path = candidate;
