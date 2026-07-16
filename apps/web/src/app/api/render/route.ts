@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { existsSync } from "node:fs";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import ffprobe from "@ffprobe-installer/ffprobe";
+import { put } from "@vercel/blob";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -667,10 +668,15 @@ export async function POST(request: NextRequest) {
   }
   const id = crypto.randomUUID(),
     work = join(tmpdir(), `drishyana-${id}`),
-    publicDir = join(process.cwd(), "public", "renders");
-  await mkdir(work, { recursive: true });
-  await mkdir(publicDir, { recursive: true });
+    useBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN),
+    outputDir = useBlob ? work : join(process.cwd(), "public", "renders");
   try {
+    if (process.env.VERCEL && !useBlob)
+      throw new Error(
+        "Vercel Blob is not connected. Add BLOB_READ_WRITE_TOKEN to this project and redeploy.",
+      );
+    await mkdir(work, { recursive: true });
+    await mkdir(outputDir, { recursive: true });
     const title = (body.title ?? "").trim(),
       titleDetails = [body.creatorName?.trim(), body.organization?.trim()]
         .filter(Boolean)
@@ -827,7 +833,7 @@ export async function POST(request: NextRequest) {
       captions.push(caption);
     }
     const isVideo = (path: string) => /\.(mp4|mov|webm)$/i.test(path);
-    const output = join(publicDir, `${id}.mp4`),
+    const output = join(outputDir, `${id}.mp4`),
       args: string[] = [];
     slides.forEach((path, i) =>
       isVideo(path)
@@ -902,9 +908,18 @@ export async function POST(request: NextRequest) {
       output,
     );
     await run(ffmpeg.path, args);
+    const videoUrl = useBlob
+      ? (
+          await put(`renders/${id}.mp4`, await readFile(output), {
+            access: "public",
+            contentType: "video/mp4",
+            addRandomSuffix: false,
+          })
+        ).url
+      : `/renders/${id}.mp4`;
     return NextResponse.json({
       id,
-      url: `/renders/${id}.mp4`,
+      url: videoUrl,
       scenes: scenes.length,
       duration: Math.round(sceneDurations.reduce((a, b) => a + b, 0)),
       voice: hasAudio
