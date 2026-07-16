@@ -104,6 +104,11 @@ export function Studio() {
   const [speed, setSpeed] = useState(180);
   const [style, setStyle] = useState("heritage");
   const [imageAnimation,setImageAnimation]=useState<"none"|"zoom"|"pan"|"fade">("zoom");
+  const [ownVoice,setOwnVoice]=useState<{url:string;name:string}|null>(null);
+  const [recordingNarration,setRecordingNarration]=useState(false);
+  const [uploadingNarration,setUploadingNarration]=useState(false);
+  const narrationRecorderRef=useRef<MediaRecorder|null>(null);
+  const narrationStreamRef=useRef<MediaStream|null>(null);
   const [backgroundMusic,setBackgroundMusic]=useState<{url:string;name:string}|null>(null);
   const [backgroundMusicPreset,setBackgroundMusicPreset]=useState<""|"ambient"|"cinematic">("ambient");
   const [backgroundMusicEnabled,setBackgroundMusicEnabled]=useState(true);
@@ -268,6 +273,7 @@ export function Studio() {
           voice,
           speed,
           style,
+          uploadedVoiceUrl: voice === "Own voice" ? ownVoice?.url : undefined,
           backgroundMusicUrl: backgroundMusicEnabled?backgroundMusic?.url:undefined,
           backgroundMusicPreset: backgroundMusicEnabled&&!backgroundMusic?backgroundMusicPreset||undefined:undefined,
           backgroundMusicVolume: backgroundMusicVolume/100,
@@ -346,6 +352,24 @@ export function Studio() {
     recognition.onresult=(event:any)=>{let interim="";for(let index=event.resultIndex;index<event.results.length;index++){const value=event.results[index][0].transcript.trim();if(event.results[index].isFinal)committed+=`${committed?" ":""}${value}`;else interim+=`${interim?" ":""}${value}`}setScript([startingText,committed,interim].filter(Boolean).join(" "));setAiGenerated(false)};
     recognition.onerror=(event:any)=>setRenderError(`Voice recording stopped: ${event.error||"microphone error"}`);
     recognition.onend=()=>setDictatingContent(false);recognition.start();dictationRef.current=recognition;setDictatingContent(true);
+  }
+  async function uploadNarration(file?:File){
+    if(!file)return;
+    setUploadingNarration(true);setRenderError("");
+    try{const form=new FormData();form.append("voice",file);const response=await fetch("/api/voice-upload",{method:"POST",body:form}),data=await response.json();if(!response.ok)throw new Error(data.error||"Narration upload failed");setOwnVoice(data);setVoice("Own voice")}
+    catch(error){setRenderError(error instanceof Error?error.message:"Narration upload failed")}
+    finally{setUploadingNarration(false)}
+  }
+  async function toggleNarrationRecording(){
+    if(recordingNarration){narrationRecorderRef.current?.stop();return}
+    if(!navigator.mediaDevices?.getUserMedia){setRenderError("Narration recording requires microphone access in Chrome, Edge, or Safari.");return}
+    try{
+      setRenderError("");const stream=await navigator.mediaDevices.getUserMedia({audio:true}),chunks:BlobPart[]=[];
+      narrationStreamRef.current=stream;const recorder=new MediaRecorder(stream);narrationRecorderRef.current=recorder;
+      recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data)};
+      recorder.onstop=async()=>{setRecordingNarration(false);stream.getTracks().forEach(track=>track.stop());narrationStreamRef.current=null;const type=recorder.mimeType||"audio/webm",extension=type.includes("ogg")?"ogg":type.includes("mp4")?"m4a":"webm";await uploadNarration(new File(chunks,`my-narration.${extension}`,{type}))};
+      recorder.start();setRecordingNarration(true);
+    }catch{setRenderError("Microphone permission was denied or no microphone is available.")}
   }
   async function uploadMusic(file?:File){if(!file)return;setRenderError("");try{const form=new FormData();form.append("voice",file);const response=await fetch("/api/voice-upload",{method:"POST",body:form}),data=await response.json();if(!response.ok)throw new Error(data.error||"Music upload failed");setBackgroundMusic(data);setBackgroundMusicPreset("")}catch(error){setRenderError(error instanceof Error?error.message:"Music upload failed")}}
   async function uploadMedia(files?: FileList) {
@@ -437,6 +461,8 @@ export function Studio() {
     setSpeed(180);
     setStyle("heritage");
     setImageAnimation("zoom");
+    setOwnVoice(null);
+    setRecordingNarration(false);
     setBackgroundMusic(null);
     setBackgroundMusicPreset("ambient");
     setBackgroundMusicEnabled(true);
@@ -923,6 +949,15 @@ export function Studio() {
                         ><strong>{o.t}</strong><small>{o.d}</small>{voice === o.v && <CheckCircle weight="fill" />}</button><button className="voice-preview" onClick={()=>previewVoice(o.v)}>▶ Sample</button></div>
                     ))}
                   </div>
+                  <div className={voice==="Own voice"?"own-voice-panel active":"own-voice-panel"}>
+                    <div><Microphone weight="fill"/><span><b>Own voice narration</b><small>Read the final script below once; this recording becomes the narration.</small></span></div>
+                    <div className="own-voice-actions">
+                      <button onClick={toggleNarrationRecording} className={recordingNarration?"dictating":""}>{recordingNarration?"Stop & use recording":"Record narration"}</button>
+                      <label><UploadSimple/>{uploadingNarration?"Uploading…":"Upload narration"}<input type="file" accept="audio/wav,audio/mpeg,audio/mp4,audio/aac,audio/ogg,audio/webm,.m4a" disabled={uploadingNarration||recordingNarration} onChange={event=>uploadNarration(event.target.files?.[0])}/></label>
+                    </div>
+                    {ownVoice&&<p><CheckCircle weight="fill"/> Ready: {ownVoice.name}</p>}
+                    <details><summary>Show script to read</summary><div className="narration-script">{script}</div></details>
+                  </div>
                   <label className="range-label">
                     <span>Speaking speed</span>
                     <b>{speed} words/min</b>
@@ -935,8 +970,7 @@ export function Studio() {
                     />
                   </label>
                   <p className="local-note">
-                    The selected voice reads only the final script. Microphone
-                    recording remains a content-to-text tool in Step 2.
+                    Installed voices synthesize the script automatically. Own voice uses the complete narration you record or upload here.
                   </p>
                 </>
               )}

@@ -20,6 +20,7 @@ type RenderInput = {
   voice?: string;
   speed?: number;
   style?: string;
+  uploadedVoiceUrl?: string;
   backgroundMusicUrl?: string;
   backgroundMusicPreset?: "ambient" | "cinematic";
   backgroundMusicVolume?: number;
@@ -327,13 +328,18 @@ type MediaCredit = {
   artist: string;
   license: string;
 };
+function providerQueries(query:string){
+  const ascii=query.replace(/[^a-zA-Z0-9 ]/g," ").replace(/\s+/g," ").trim(),words=ascii.split(" ").filter(word=>word.length>2&&!/^(the|and|from|with|story|video|image|introduction|history)$/i.test(word));
+  const focused=words.slice(0,5).join(" "),ai=/\b(ai|artificial intelligence|machine learning|robot|technology|digital)\b/i.test(ascii);
+  return Array.from(new Set([ascii,focused,ai?"artificial intelligence technology future":null,"cinematic India culture landscape"].filter(Boolean))) as string[];
+}
 async function pixabayImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
   const key=process.env.PIXABAY_API_KEY;if(!key)return null;
-  try{const params=new URLSearchParams({key,q:query.slice(0,100),image_type:"photo",orientation:portrait?"vertical":"horizontal",min_width:portrait?"720":"1280",min_height:portrait?"1280":"720",safesearch:"true",order:"popular",per_page:"50"}),response=await fetch(`https://pixabay.com/api/?${params}`,{signal:AbortSignal.timeout(10000)});if(!response.ok)return null;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>(hit.largeImageURL||hit.webformatURL)&&!used.has(hit.pageURL)),hit=hits[seed%Math.max(1,hits.length)];if(!hit)return null;const image=await fetch(hit.fullHDURL||hit.largeImageURL||hit.webformatURL,{signal:AbortSignal.timeout(18000)});if(!image.ok)return null;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)return null;await writeFile(output,bytes);used.add(hit.pageURL);return{title:hit.tags||query,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}catch{return null}
+  for(const search of providerQueries(query)){try{const params=new URLSearchParams({key,q:search.slice(0,100),image_type:"photo",orientation:portrait?"vertical":"horizontal",min_width:portrait?"720":"1280",min_height:portrait?"1280":"720",safesearch:"true",order:"popular",per_page:"50"}),response=await fetch(`https://pixabay.com/api/?${params}`,{signal:AbortSignal.timeout(10000)});if(!response.ok)continue;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>(hit.largeImageURL||hit.webformatURL)&&!used.has(hit.pageURL)),hit=hits[seed%Math.max(1,hits.length)];if(!hit)continue;const image=await fetch(hit.fullHDURL||hit.largeImageURL||hit.webformatURL,{signal:AbortSignal.timeout(18000)});if(!image.ok)continue;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)continue;await writeFile(output,bytes);used.add(hit.pageURL);return{title:hit.tags||search,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}catch{continue}}return null;
 }
 async function pixabayVideo(query:string,outputBase:string,seed:number,portrait:boolean):Promise<{path:string;credit:MediaCredit}|null>{
   const key=process.env.PIXABAY_API_KEY;if(!key)return null;
-  try{const params=new URLSearchParams({key,q:query.slice(0,100),video_type:"film",orientation:portrait?"vertical":"horizontal",safesearch:"true",order:"popular",per_page:"30"}),response=await fetch(`https://pixabay.com/api/videos/?${params}`,{signal:AbortSignal.timeout(10000)});if(!response.ok)return null;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>hit.videos?.medium?.url||hit.videos?.large?.url),hit=hits[seed%Math.max(1,hits.length)];if(!hit)return null;const choices=[hit.videos?.large,hit.videos?.medium,hit.videos?.small].filter((file:any)=>file?.url&&Number(file.width)>=720&&Number(file.size||0)<=45_000_000),selected=choices[0];if(!selected)return null;const video=await fetch(selected.url,{signal:AbortSignal.timeout(25000)});if(!video.ok)return null;const bytes=Buffer.from(await video.arrayBuffer());if(!bytes.length||bytes.length>45_000_000)return null;const path=`${outputBase}.mp4`;await writeFile(path,bytes);return{path,credit:{title:hit.tags||`${query} video`,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}}catch{return null}
+  for(const search of providerQueries(query)){try{const params=new URLSearchParams({key,q:search.slice(0,100),video_type:"film",orientation:portrait?"vertical":"horizontal",safesearch:"true",order:"popular",per_page:"30"}),response=await fetch(`https://pixabay.com/api/videos/?${params}`,{signal:AbortSignal.timeout(10000)});if(!response.ok)continue;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>hit.videos?.medium?.url||hit.videos?.large?.url),hit=hits[seed%Math.max(1,hits.length)];if(!hit)continue;const choices=[hit.videos?.large,hit.videos?.medium,hit.videos?.small].filter((file:any)=>file?.url&&Number(file.width)>=720&&Number(file.size||0)<=45_000_000),selected=choices[0];if(!selected)continue;const video=await fetch(selected.url,{signal:AbortSignal.timeout(25000)});if(!video.ok)continue;const bytes=Buffer.from(await video.arrayBuffer());if(!bytes.length||bytes.length>45_000_000)continue;const path=`${outputBase}.mp4`;await writeFile(path,bytes);return{path,credit:{title:hit.tags||`${search} video`,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}}catch{continue}}return null;
 }
 async function pexelsImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
   const key=process.env.PEXELS_API_KEY;if(!key)return null;
@@ -731,7 +737,12 @@ export async function POST(request: NextRequest) {
           ? "te_IN-venkatesh-medium"
           : "te_IN-padmavathi-medium",
       model = join(root, "models", "piper", `${modelName}.onnx`);
-    if (telugu && existsSync(piper) && existsSync(model)) {
+    if (body.uploadedVoiceUrl) {
+      const uploaded=join(work,"own-voice.audio");
+      if(/^https:\/\//i.test(body.uploadedVoiceUrl)){const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error("Could not download the own-voice narration.");await writeFile(uploaded,Buffer.from(await response.arrayBuffer()))}
+      else {const local=join(process.cwd(),"public","uploads","voices",body.uploadedVoiceUrl.split("/").pop()!);if(!existsSync(local))throw new Error("Own-voice narration was not found.");await writeFile(uploaded,await readFile(local))}
+      narration=uploaded;voice="Own voice";hasAudio=true;
+    } else if (telugu && existsSync(piper) && existsSync(model)) {
       narration = join(work, "narration.wav");
       try {
         const chunks = narrationChunks(cleanNarrationText), files: string[] = [];
