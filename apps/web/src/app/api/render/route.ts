@@ -893,7 +893,7 @@ export async function POST(request: NextRequest) {
     if (hasAudio||hasMusic)
       args.push(
         "-map",
-        hasAudio&&hasMusic?"[a]":`${slides.length}:a`,
+        hasAudio&&hasMusic?"[a]":hasMusic?"[bg]":`${slides.length}:a`,
         "-shortest",
         "-c:a",
         "aac",
