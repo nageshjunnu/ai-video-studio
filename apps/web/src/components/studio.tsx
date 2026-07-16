@@ -115,6 +115,10 @@ export function Studio() {
   const [uploadingVoice, setUploadingVoice] = useState(false);
   const [dictatingContent,setDictatingContent]=useState(false);
   const dictationRef=useRef<any>(null);
+  const [recordingNarration,setRecordingNarration]=useState(false);
+  const narrationRecorderRef=useRef<MediaRecorder|null>(null);
+  const narrationStreamRef=useRef<MediaStream|null>(null);
+  const narrationChunksRef=useRef<Blob[]>([]);
   const [showCaptions, setShowCaptions] = useState(true);
   const [captionPosition, setCaptionPosition] = useState<"top" | "bottom">(
     "bottom",
@@ -373,6 +377,11 @@ export function Studio() {
     recognition.onresult=(event:any)=>{let interim="";for(let index=event.resultIndex;index<event.results.length;index++){const value=event.results[index][0].transcript.trim();if(event.results[index].isFinal)committed+=`${committed?" ":""}${value}`;else interim+=`${interim?" ":""}${value}`}setScript([startingText,committed,interim].filter(Boolean).join(" "));setAiGenerated(false)};
     recognition.onerror=(event:any)=>setRenderError(`Voice recording stopped: ${event.error||"microphone error"}`);
     recognition.onend=()=>setDictatingContent(false);recognition.start();dictationRef.current=recognition;setDictatingContent(true);
+  }
+  async function toggleNarrationRecording(){
+    if(recordingNarration){narrationRecorderRef.current?.stop();return}
+    setRenderError("");
+    try{const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}}),mimeType=MediaRecorder.isTypeSupported("audio/webm;codecs=opus")?"audio/webm;codecs=opus":"audio/webm",recorder=new MediaRecorder(stream,{mimeType});narrationStreamRef.current=stream;narrationChunksRef.current=[];narrationRecorderRef.current=recorder;recorder.ondataavailable=event=>{if(event.data.size)narrationChunksRef.current.push(event.data)};recorder.onstop=async()=>{setRecordingNarration(false);stream.getTracks().forEach(track=>track.stop());narrationStreamRef.current=null;const blob=new Blob(narrationChunksRef.current,{type:mimeType}),file=new File([blob],`my-voice-${Date.now()}.webm`,{type:mimeType});await uploadVoice(file);setVoice("My voice")};recorder.start(1000);setRecordingNarration(true)}catch(error){setRecordingNarration(false);setRenderError(error instanceof Error?`Microphone unavailable: ${error.message}`:"Microphone access was not allowed.")}
   }
   async function uploadMusic(file?:File){if(!file)return;setRenderError("");try{const form=new FormData();form.append("voice",file);const response=await fetch("/api/voice-upload",{method:"POST",body:form}),data=await response.json();if(!response.ok)throw new Error(data.error||"Music upload failed");setBackgroundMusic(data);setBackgroundMusicPreset("")}catch(error){setRenderError(error instanceof Error?error.message:"Music upload failed")}}
   async function uploadMedia(files?: FileList) {
@@ -982,6 +991,7 @@ export function Studio() {
                       onChange={(e) => uploadVoice(e.target.files?.[0])}
                     />
                   </label>
+                  <div className={`my-voice-choice ${uploadedVoice&&voice==="My voice"?"selected":""} ${recordingNarration?"recording":""}`}><div><Microphone weight="fill"/><span><b>My voice</b><small>{recordingNarration?"Recording now — read the complete script":"Record yourself reading the content script"}</small></span>{uploadedVoice&&voice==="My voice"&&<CheckCircle weight="fill"/>}</div><button onClick={toggleNarrationRecording} disabled={uploadingVoice}>{recordingNarration?"Stop & use voice":"Record my voice"}</button>{uploadedVoice&&<button className="use-recorded" onClick={()=>setVoice("My voice")}>Use saved recording</button>}</div>
                   <label className="range-label">
                     <span>Speaking speed</span>
                     <b>{speed} words/min</b>
