@@ -226,7 +226,7 @@ export function Studio() {
       const seconds = (Date.now() - started) / 1000;
       setElapsed(Math.floor(seconds));
       setProgress(
-        Math.min(97, Math.round(5 + (seconds / estimatedSeconds) * 90)),
+        Math.min(92, Math.round(5 + (seconds / estimatedSeconds) * 85)),
       );
     }, 1000);
     let projectId = "";
@@ -1183,7 +1183,7 @@ export function Studio() {
                       <Sparkle />
                       <b>
                         {rendering
-                          ? `Rendering locally… ${progress}%`
+                          ? `${progress >= 92 ? "Finalizing in the cloud" : "Rendering in the cloud"}… ${progress}%`
                           : `Full script · ${script.split(/\n+/).filter((v) => v.trim()).length} sections`}
                       </b>
                       <span>

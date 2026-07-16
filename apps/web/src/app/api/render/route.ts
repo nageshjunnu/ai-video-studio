@@ -768,7 +768,8 @@ export async function POST(request: NextRequest) {
         : Math.max(3.5, weight / 13),
     );
     const portrait = body.format === "9:16",
-      square = body.format === "1:1";
+      square = body.format === "1:1",
+      renderFps = process.env.VERCEL ? 12 : 24;
     const [w, h] = portrait ? [720, 1280] : square ? [1080, 1080] : [1280, 720];
     const uploaded = (body.uploadedMediaUrls ?? [])
       .filter((v) => v.startsWith("/uploads/media/"))
@@ -877,7 +878,7 @@ export async function POST(request: NextRequest) {
             : body.showCaptions === false
               ? ""
               : captionFilter.replace(captions[0], captions[i]);
-        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*24)),still=!isVideo(slides[i]),motion=!still||body.imageAnimation==="none"||!body.imageAnimation?`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h}`:body.imageAnimation==="zoom"?`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},zoompan=z='min(zoom+0.0007,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=24`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=1:s=${w}x${h}:fps=24`:`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
+        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*renderFps)),still=!isVideo(slides[i]),motion=!still||body.imageAnimation==="none"||!body.imageAnimation?`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h}`:body.imageAnimation==="zoom"?`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},zoompan=z='min(zoom+0.0007,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=${renderFps}`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=1:s=${w}x${h}:fps=${renderFps}`:`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
         return `[${i}:v]${motion},setsar=1,format=yuv420p${cap}${branding}[v${i}]`;
       })
       .join(";");
@@ -904,9 +905,9 @@ export async function POST(request: NextRequest) {
       "-c:v",
       "libx264",
       "-preset",
-      scenes.length > 20 ? "ultrafast" : "veryfast",
+      process.env.VERCEL || scenes.length > 20 ? "ultrafast" : "veryfast",
       "-r",
-      "24",
+      String(renderFps),
       "-movflags",
       "+faststart",
       "-y",
