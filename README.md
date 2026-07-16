@@ -6,6 +6,27 @@ A production-oriented foundation for a multilingual story-to-video studio. Drish
 
 Set `DATABASE_URL` to the pooled PostgreSQL connection supplied by Neon. Set `WEB_URL` to the deployed frontend origin, `API_URL` to the server-side API URL, and `NEXT_PUBLIC_API_URL` to the public API URL used by browsers. Use a unique production `JWT_SECRET` of at least 32 random characters. Never commit `.env`.
 
+Use these URL values locally:
+
+```env
+WEB_URL=http://localhost:3000
+API_URL=http://localhost:4000/api/v1
+NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
+```
+
+Use these values in the deployment dashboards (not in the local `.env`):
+
+```env
+# Render API service
+WEB_URL=https://your-vercel-domain.vercel.app
+
+# Vercel web project
+API_URL=https://drishyana-api.onrender.com/api/v1
+NEXT_PUBLIC_API_URL=https://drishyana-api.onrender.com/api/v1
+```
+
+`WEB_URL` accepts a comma-separated list when production and preview frontend origins both need API access. Restart both development servers after changing environment variables.
+
 ## Quick start
 
 ```bash

@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import ffprobe from "@ffprobe-installer/ffprobe";
 import { put } from "@vercel/blob";
+import { serverApiUrl } from "@/lib/server-api";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -643,7 +644,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   let showBranding=true;
-  if(body.showBranding===false){try{const authorization=request.headers.get("authorization")??"",apiUrl=process.env.API_URL??"https://drishyana-api.onrender.com/api/v1",response=await fetch(`${apiUrl}/auth/me`,{headers:{authorization},cache:"no-store"}),account=response.ok?await response.json():null;showBranding=!(account?.role==="ADMIN"||account?.hasPaid===true)}catch{showBranding=true}}
+  if(body.showBranding===false){try{const authorization=request.headers.get("authorization")??"",response=await fetch(`${serverApiUrl()}/auth/me`,{headers:{authorization},cache:"no-store"}),account=response.ok?await response.json():null;showBranding=!(account?.role==="ADMIN"||account?.hasPaid===true)}catch{showBranding=true}}
   if (body.useRelatedVideos) {
     const authorization = request.headers.get("authorization");
     if (!authorization)
@@ -654,8 +655,7 @@ export async function POST(request: NextRequest) {
         { status: 403 },
       );
     try {
-      const apiUrl = process.env.API_URL ?? "https://drishyana-api.onrender.com/api/v1",
-        entitlement = await fetch(`${apiUrl}/auth/me`, {
+      const entitlement = await fetch(`${serverApiUrl()}/auth/me`, {
           headers: { authorization },
           cache: "no-store",
         }),
