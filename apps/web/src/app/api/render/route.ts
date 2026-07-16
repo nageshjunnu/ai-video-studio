@@ -14,8 +14,6 @@ export const maxDuration = 300;
 
 type RenderInput = {
   title?: string;
-  creatorName?: string;
-  organization?: string;
   showTitleScreen?: boolean;
   script?: string;
   format?: "16:9" | "9:16" | "1:1";
@@ -464,7 +462,7 @@ async function commonsVideo(
         .filter(
           (d: any) =>
             /\.(mp4|webm)(?:\?|$)/i.test(d.src ?? "") &&
-            Math.max(Number(d.width ?? 0), Number(d.height ?? 0)) >= 480,
+            Math.max(Number(d.width ?? 0), Number(d.height ?? 0)) >= 720,
         )
         .sort(
           (a: any, b: any) =>
@@ -558,6 +556,16 @@ function rasterSlide(index: number, w: number, h: number, style = "royal") {
         [34, 28, 47],
         [92, 70, 125],
       ],
+    ],
+    aurora: [
+      [[8, 24, 45], [39, 202, 181]],
+      [[35, 16, 66], [180, 79, 218]],
+      [[12, 42, 67], [57, 132, 255]],
+    ],
+    cinematic: [
+      [[13, 12, 14], [181, 116, 35]],
+      [[28, 18, 13], [232, 172, 72]],
+      [[11, 18, 28], [162, 102, 33]],
     ],
   };
   const set = palettes[style] ?? palettes.royal,
@@ -692,9 +700,6 @@ export async function POST(request: NextRequest) {
     await mkdir(work, { recursive: true });
     await mkdir(outputDir, { recursive: true });
     const title = (body.title ?? "").trim(),
-      titleDetails = [body.creatorName?.trim(), body.organization?.trim()]
-        .filter(Boolean)
-        .join(" • "),
       hasTitle = body.showTitleScreen !== false && !!title,
       narrationText = script,
       cleanNarrationText = narrationText.replace(/https?:\/\/\S+|www\.\S+/giu," ").replace(/[#*_~`^<>\[\]{}|\\/@©®™•▪■◆◇★☆✓✔✦✧]+/gu," ").replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/gu," ").replace(/\s+/gu," ").trim();
@@ -711,19 +716,16 @@ export async function POST(request: NextRequest) {
           ? "te_IN-venkatesh-medium"
           : "te_IN-padmavathi-medium",
       model = join(root, "models", "piper", `${modelName}.onnx`);
-    if (body.uploadedVoiceUrl?.startsWith("/uploads/voices/")) {
-      const uploaded = join(
-        process.cwd(),
-        "public",
-        "uploads",
-        "voices",
-        body.uploadedVoiceUrl.split("/").pop()!,
-      );
-      if (existsSync(uploaded)) {
-        narration = uploaded;
-        voice = "Your uploaded voice";
-        hasAudio = true;
+    if (body.uploadedVoiceUrl) {
+      const uploaded = join(work,`uploaded-narration${body.uploadedVoiceUrl.match(/\.[a-z0-9]+(?:\?|$)/i)?.[0]?.replace("?","")||".audio"}`);
+      if(/^https:\/\//i.test(body.uploadedVoiceUrl)){
+        const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});
+        if(response.ok)await writeFile(uploaded,Buffer.from(await response.arrayBuffer()));
+      }else if(body.uploadedVoiceUrl.startsWith("/uploads/voices/")){
+        const local=join(process.cwd(),"public","uploads","voices",body.uploadedVoiceUrl.split("/").pop()!);
+        if(existsSync(local))await writeFile(uploaded,await readFile(local));
       }
+      if(existsSync(uploaded)){narration=uploaded;voice="Your recorded voice";hasAudio=true}
     } else if (telugu && existsSync(piper) && existsSync(model)) {
       narration = join(work, "narration.wav");
       try {
@@ -751,7 +753,7 @@ export async function POST(request: NextRequest) {
       try {
         await run("/usr/bin/say", [
           "-v",
-          voice,
+          voice.startsWith("Child") ? "Samantha" : voice,
           "-r",
           String(rate),
           "-o",
@@ -763,12 +765,17 @@ export async function POST(request: NextRequest) {
         hasAudio = false;
       }
     }
+    if(hasAudio&&voice.startsWith("Child")){
+      const childNarration=join(work,"narration-child.wav");
+      await run(ffmpeg.path,["-i",narration,"-filter:a","aresample=44100,asetrate=51000,aresample=44100,atempo=0.92","-ac","1","-y",childNarration]);
+      narration=childNarration;
+    }
     const storyScenes = compactScenes(
         scenesFrom(script),
         process.env.VERCEL ? 10 : 48,
       ),
       scenes = hasTitle
-        ? [`${title}${titleDetails ? `\n${titleDetails}` : ""}`, ...storyScenes]
+        ? [title, ...storyScenes]
         : storyScenes,
       audioDuration = hasAudio ? await duration(narration) : 0;
     const weights = scenes.map((s, i) =>
@@ -874,7 +881,9 @@ export async function POST(request: NextRequest) {
         : args.push("-loop", "1", "-t", String(sceneDurations[i]), "-i", path),
     );
     if (hasAudio) args.push("-i", narration);
-    const music = body.backgroundMusicUrl?.startsWith("/uploads/voices/") ? join(process.cwd(),"public","uploads","voices",body.backgroundMusicUrl.split("/").pop()!) : "", hasUploadedMusic = !!music && existsSync(music), musicPreset=body.backgroundMusicPreset, hasMusic=hasUploadedMusic||!!musicPreset;
+    let music="";
+    if(body.backgroundMusicUrl){music=join(work,`background-music${body.backgroundMusicUrl.match(/\.[a-z0-9]+(?:\?|$)/i)?.[0]?.replace("?","")||".audio"}`);if(/^https:\/\//i.test(body.backgroundMusicUrl)){const response=await fetch(body.backgroundMusicUrl,{signal:AbortSignal.timeout(30000)});if(response.ok)await writeFile(music,Buffer.from(await response.arrayBuffer()))}else if(body.backgroundMusicUrl.startsWith("/uploads/voices/")){const local=join(process.cwd(),"public","uploads","voices",body.backgroundMusicUrl.split("/").pop()!);if(existsSync(local))await writeFile(music,await readFile(local))}}
+    const hasUploadedMusic = !!music && existsSync(music), musicPreset=body.backgroundMusicPreset, hasMusic=hasUploadedMusic||!!musicPreset;
     if (hasUploadedMusic) args.push("-stream_loop","-1","-i",music);
     else if(musicPreset){const tone=musicPreset==="cinematic"?"0.10*sin(2*PI*110*t)+0.045*sin(2*PI*165*t)+0.025*sin(2*PI*220*t)":"0.07*sin(2*PI*196*t)+0.035*sin(2*PI*293.66*t)+0.02*sin(2*PI*392*t)";args.push("-f","lavfi","-i",`aevalsrc=${tone}:s=44100`)}
     const font = join(
@@ -901,7 +910,7 @@ export async function POST(request: NextRequest) {
             : body.showCaptions === false
               ? ""
               : captionFilter.replace(captions[0], captions[i]);
-        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*renderFps)),still=!isVideo(slides[i]),motion=!still||body.imageAnimation==="none"||!body.imageAnimation?`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h}`:body.imageAnimation==="zoom"?`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},zoompan=z='min(zoom+0.0007,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=${renderFps}`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=1:s=${w}x${h}:fps=${renderFps}`:`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
+        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*renderFps)),still=!isVideo(slides[i]),base=`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h},eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`,motion=!still||body.imageAnimation==="none"||!body.imageAnimation?base:body.imageAnimation==="zoom"?`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},zoompan=z='min(zoom+0.0007,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=${renderFps},eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=1:s=${w}x${h}:fps=${renderFps},eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:`${base},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
         return `[${i}:v]${motion},setsar=1,format=yuv420p${cap}${branding}[v${i}]`;
       })
       .join(";");

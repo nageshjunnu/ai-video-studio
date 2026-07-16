@@ -12,10 +12,13 @@ const sentenceSplit = (text: string) =>
     ?.map((v) => v.trim())
     .filter(Boolean) ?? [];
 function sections(extract: string) {
-  const sentences = sentenceSplit(extract).slice(0, 24),
+  const sentences = sentenceSplit(extract),
     chunks: string[] = [];
-  for (let i = 0; i < sentences.length; i += 4)
-    chunks.push(sentences.slice(i, i + 4).join(" "));
+  let words=0,current:string[]=[];
+  for(const sentence of sentences){const count=sentence.split(/\s+/u).filter(Boolean).length;if(words&&words+count>180)break;current.push(sentence);words+=count}
+  const selected=current.length?current:sentences.slice(0,4);
+  for (let i = 0; i < selected.length; i += 3)
+    chunks.push(selected.slice(i, i + 3).join(" "));
   return chunks.slice(0, 6);
 }
 async function wiki(

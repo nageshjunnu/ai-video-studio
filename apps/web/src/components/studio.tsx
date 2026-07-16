@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, clearSession, session } from "@/lib/api";
 import {
@@ -101,7 +101,7 @@ export function Studio() {
   const [script, setScript] = useState("");
   const [format, setFormat] = useState<"16:9" | "9:16" | "1:1">("16:9");
   const [voice, setVoice] = useState("Padmavathi");
-  const [speed, setSpeed] = useState(145);
+  const [speed, setSpeed] = useState(180);
   const [style, setStyle] = useState("heritage");
   const [imageAnimation,setImageAnimation]=useState<"none"|"zoom"|"pan"|"fade">("zoom");
   const [uploadedVoice, setUploadedVoice] = useState<{
@@ -109,9 +109,14 @@ export function Studio() {
     name: string;
   } | null>(null);
   const [backgroundMusic,setBackgroundMusic]=useState<{url:string;name:string}|null>(null);
-  const [backgroundMusicPreset,setBackgroundMusicPreset]=useState<""|"ambient"|"cinematic">("");
+  const [backgroundMusicPreset,setBackgroundMusicPreset]=useState<""|"ambient"|"cinematic">("ambient");
+  const [backgroundMusicEnabled,setBackgroundMusicEnabled]=useState(true);
   const [backgroundMusicVolume,setBackgroundMusicVolume]=useState(12);
   const [uploadingVoice, setUploadingVoice] = useState(false);
+  const [recordingVoice,setRecordingVoice]=useState(false);
+  const recorderRef=useRef<MediaRecorder|null>(null);
+  const recordingStreamRef=useRef<MediaStream|null>(null);
+  const recordingChunksRef=useRef<Blob[]>([]);
   const [showCaptions, setShowCaptions] = useState(true);
   const [captionPosition, setCaptionPosition] = useState<"top" | "bottom">(
     "bottom",
@@ -125,8 +130,6 @@ export function Studio() {
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [useRelatedVideos, setUseRelatedVideos] = useState(false);
   const [videoTitle, setVideoTitle] = useState("");
-  const [creatorName, setCreatorName] = useState("");
-  const [organization, setOrganization] = useState("");
   const [showTitleScreen, setShowTitleScreen] = useState(true);
   const [videoCountry, setVideoCountry] = useState("GLOBAL");
   const [scriptTopic, setScriptTopic] = useState("");
@@ -150,7 +153,6 @@ export function Studio() {
       setUser(current);
       if (current.hasPaid || current.role === "ADMIN")
         setUseRelatedVideos(true);
-      setCreatorName((v) => v || current.fullName);
       setProjects(
         allProjects.map((p: any, i: number) => ({
           id: p.id,
@@ -207,6 +209,13 @@ export function Studio() {
     media?: { title: string; source: string; license: string }[];
   } | null>(null);
   const [renderError, setRenderError] = useState("");
+  const renderMessages=[
+    "Reading your story and finding its strongest visual moments",
+    "Matching every scene with high-quality story visuals",
+    "Adding cinematic movement, depth and transitions",
+    "Balancing narration, music and readable captions",
+    "Polishing your video into a beautiful final cut",
+  ];
   async function createVideo() {
     if (!script.trim()) {
       setStep(2);
@@ -260,8 +269,6 @@ export function Studio() {
         },
         body: JSON.stringify({
           title: videoTitle || "My Story",
-          creatorName,
-          organization,
           showTitleScreen,
           script,
           format,
@@ -269,8 +276,8 @@ export function Studio() {
           speed,
           style,
           uploadedVoiceUrl: uploadedVoice?.url,
-          backgroundMusicUrl: backgroundMusic?.url,
-          backgroundMusicPreset: backgroundMusic?undefined:backgroundMusicPreset||undefined,
+          backgroundMusicUrl: backgroundMusicEnabled?backgroundMusic?.url:undefined,
+          backgroundMusicPreset: backgroundMusicEnabled&&!backgroundMusic?backgroundMusicPreset||undefined:undefined,
           backgroundMusicVolume: backgroundMusicVolume/100,
           uploadedMediaUrls: selectedTemplate?.videoUrl
             ? [selectedTemplate.videoUrl]
@@ -345,6 +352,29 @@ export function Studio() {
     } finally {
       setUploadingVoice(false);
     }
+  }
+  function previewVoice(name:string){
+    if(typeof window==="undefined"||!("speechSynthesis" in window))return;
+    window.speechSynthesis.cancel();
+    const telugu=name==="Padmavathi"||name==="Venkatesh"||name==="Child Telugu";
+    const utterance=new SpeechSynthesisUtterance(telugu?"నమస్కారం. మీ కథను అందంగా వినిపిస్తాను.":"Hello. This is a preview of your story voice.");
+    utterance.lang=telugu?"te-IN":"en-US";
+    utterance.rate=Math.max(.7,Math.min(1.3,speed/180));
+    utterance.pitch=name.includes("Child")?1.55:name==="Venkatesh"||name==="Daniel"?0.88:1;
+    const voices=window.speechSynthesis.getVoices(),preferred=voices.find(item=>item.name.toLowerCase().includes(name.toLowerCase()))||voices.find(item=>item.lang.toLowerCase().startsWith(telugu?"te":"en"));
+    if(preferred)utterance.voice=preferred;
+    window.speechSynthesis.speak(utterance);
+  }
+  async function toggleVoiceRecording(){
+    if(recordingVoice){recorderRef.current?.stop();return}
+    setRenderError("");
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}}),mimeType=MediaRecorder.isTypeSupported("audio/webm;codecs=opus")?"audio/webm;codecs=opus":"audio/webm",recorder=new MediaRecorder(stream,{mimeType});
+      recordingStreamRef.current=stream;recordingChunksRef.current=[];recorderRef.current=recorder;
+      recorder.ondataavailable=event=>{if(event.data.size)recordingChunksRef.current.push(event.data)};
+      recorder.onstop=async()=>{setRecordingVoice(false);stream.getTracks().forEach(track=>track.stop());recordingStreamRef.current=null;const blob=new Blob(recordingChunksRef.current,{type:mimeType}),file=new File([blob],`recorded-narration-${Date.now()}.webm`,{type:mimeType});await uploadVoice(file)};
+      recorder.start();setRecordingVoice(true);
+    }catch(error){setRenderError(error instanceof Error?`Microphone unavailable: ${error.message}`:"Microphone access was not allowed.")}
   }
   async function uploadMusic(file?:File){if(!file)return;setRenderError("");try{const form=new FormData();form.append("voice",file);const response=await fetch("/api/voice-upload",{method:"POST",body:form}),data=await response.json();if(!response.ok)throw new Error(data.error||"Music upload failed");setBackgroundMusic(data);setBackgroundMusicPreset("")}catch(error){setRenderError(error instanceof Error?error.message:"Music upload failed")}}
   async function uploadMedia(files?: FileList) {
@@ -433,12 +463,13 @@ export function Studio() {
     setScript("");
     setFormat("16:9");
     setVoice("Padmavathi");
-    setSpeed(145);
+    setSpeed(180);
     setStyle("heritage");
     setImageAnimation("zoom");
     setUploadedVoice(null);
     setBackgroundMusic(null);
-    setBackgroundMusicPreset("");
+    setBackgroundMusicPreset("ambient");
+    setBackgroundMusicEnabled(true);
     setBackgroundMusicVolume(12);
     setShowCaptions(true);
     setCaptionPosition("bottom");
@@ -447,8 +478,6 @@ export function Studio() {
     setSelectedTemplate(null);
     setUseRelatedVideos(Boolean(user?.hasPaid || user?.role === "ADMIN"));
     setVideoTitle("");
-    setCreatorName(user?.fullName ?? "");
-    setOrganization("");
     setShowTitleScreen(true);
     setVideoCountry("GLOBAL");
     setScriptTopic("");
@@ -793,7 +822,7 @@ export function Studio() {
                       </button>
                     ))}
                   </div>
-                  <div className="background-music-control"><select value={backgroundMusic?"upload":backgroundMusicPreset} onChange={e=>{const value=e.target.value;if(value!=="upload"){setBackgroundMusic(null);setBackgroundMusicPreset(value as typeof backgroundMusicPreset)}}}><option value="">No background music</option><option value="ambient">Default · Gentle ambient</option><option value="cinematic">Default · Cinematic pulse</option>{backgroundMusic&&<option value="upload">Uploaded · {backgroundMusic.name}</option>}</select><label><span><b>Upload your own music</b><small>{backgroundMusic?backgroundMusic.name:"MP3, WAV, M4A or OGG"}</small></span><strong>Choose file</strong><input type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/aac,audio/ogg,.m4a" onChange={e=>uploadMusic(e.target.files?.[0])}/></label>{(backgroundMusic||backgroundMusicPreset)&&<div><button onClick={()=>{setBackgroundMusic(null);setBackgroundMusicPreset("")}}>Remove</button><span>Music volume</span><input type="range" min="2" max="35" value={backgroundMusicVolume} onChange={e=>setBackgroundMusicVolume(Number(e.target.value))}/><b>{backgroundMusicVolume}%</b></div>}</div>
+                  <div className="background-music-control"><label className="music-enable"><input type="checkbox" checked={backgroundMusicEnabled} onChange={event=>setBackgroundMusicEnabled(event.target.checked)}/><span><b>Background music</b><small>{backgroundMusicEnabled?"Enabled for this video":"Disabled — narration only"}</small></span></label>{backgroundMusicEnabled&&<><select value={backgroundMusic?"upload":backgroundMusicPreset} onChange={e=>{const value=e.target.value;if(value!=="upload"){setBackgroundMusic(null);setBackgroundMusicPreset(value as typeof backgroundMusicPreset)}}}><option value="ambient">Default · Gentle ambient</option><option value="cinematic">Default · Cinematic pulse</option>{backgroundMusic&&<option value="upload">Uploaded · {backgroundMusic.name}</option>}</select><label><span><b>Upload your own music</b><small>{backgroundMusic?backgroundMusic.name:"MP3, WAV, M4A or OGG"}</small></span><strong>Choose file</strong><input type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/aac,audio/ogg,.m4a" onChange={e=>uploadMusic(e.target.files?.[0])}/></label><div><button onClick={()=>{setBackgroundMusic(null);setBackgroundMusicPreset("ambient")}}>Use default</button><span>Music volume</span><input type="range" min="2" max="35" value={backgroundMusicVolume} onChange={e=>setBackgroundMusicVolume(Number(e.target.value))}/><b>{backgroundMusicVolume}%</b></div></>}</div>
                 </>
               )}
               {step === 2 && (
@@ -846,16 +875,6 @@ export function Studio() {
                     <button onClick={generateTitle} disabled={generatingScript}>
                       Generate title
                     </button>
-                    <input
-                      value={creatorName}
-                      onChange={(e) => setCreatorName(e.target.value)}
-                      placeholder="Creator name"
-                    />
-                    <input
-                      value={organization}
-                      onChange={(e) => setOrganization(e.target.value)}
-                      placeholder="Channel / organization"
-                    />
                   </div>
                   <label className="title-toggle">
                     <input
@@ -866,7 +885,7 @@ export function Studio() {
                     <span>
                       <b>Show opening title screen</b>
                       <small>
-                        Displays the title and creator details before the story
+                        Displays only the video title before the story
                       </small>
                     </span>
                   </label>
@@ -911,7 +930,7 @@ export function Studio() {
                     Use an offline Telugu neural voice or upload your own
                     narration.
                   </p>
-                  <div className="option-grid">
+                  <div className="option-grid voice-grid">
                     {[
                       {
                         v: "Padmavathi",
@@ -924,23 +943,16 @@ export function Studio() {
                         d: "Telugu male · Installed",
                       },
                       { v: "Samantha", t: "Samantha", d: "English female" },
+                      { v: "Alex", t: "Alex", d: "English neutral" },
+                      { v: "Daniel", t: "Daniel", d: "English deep male" },
+                      { v: "Victoria", t: "Victoria", d: "English warm female" },
+                      { v: "Child Telugu", t: "Chinni", d: "Telugu child style" },
+                      { v: "Child English", t: "Junior", d: "English child style" },
                     ].map((o) => (
-                      <button
-                        key={o.v}
-                        className={
-                          voice === o.v && !uploadedVoice ? "selected" : ""
-                        }
-                        onClick={() => {
-                          setVoice(o.v);
-                          setUploadedVoice(null);
-                        }}
-                      >
-                        <strong>{o.t}</strong>
-                        <small>{o.d}</small>
-                        {voice === o.v && !uploadedVoice && (
-                          <CheckCircle weight="fill" />
-                        )}
-                      </button>
+                      <div className="voice-card-wrap" key={o.v}><button
+                          className={voice === o.v && !uploadedVoice ? "selected" : ""}
+                          onClick={() => {setVoice(o.v);setUploadedVoice(null)}}
+                        ><strong>{o.t}</strong><small>{o.d}</small>{voice === o.v && !uploadedVoice && <CheckCircle weight="fill" />}</button><button className="voice-preview" onClick={()=>previewVoice(o.v)}>▶ Sample</button></div>
                     ))}
                   </div>
                   <label
@@ -971,6 +983,7 @@ export function Studio() {
                       onChange={(e) => uploadVoice(e.target.files?.[0])}
                     />
                   </label>
+                  <div className={`voice-recorder ${recordingVoice?"recording":""}`}><button onClick={toggleVoiceRecording} disabled={uploadingVoice}><Microphone weight="fill"/><span>{recordingVoice?"Stop and use recording":"Record narration now"}</span></button><small>{recordingVoice?"Recording… read your script, then press stop.":"Uses your microphone and selects the recording automatically."}</small></div>
                   <label className="range-label">
                     <span>Speaking speed</span>
                     <b>{speed} words/min</b>
@@ -997,11 +1010,13 @@ export function Studio() {
                     Your videos are used first; remaining scenes receive
                     topic-matched images or generated backgrounds.
                   </p>
-                  <details className="visual-choice-accordion" open><summary><span><b>Visual choices</b><small>Style, templates, related images and clips</small></span><CaretRight/></summary><div className="visual-choice-content"><div className="style-grid compact">
+                  <details className="visual-choice-accordion"><summary><span><b>Visual choices</b><small>Tap to show or hide styles, templates and motion</small></span><CaretRight/></summary><div className="visual-choice-content"><div className="style-grid compact">
                     {[
                       { v: "heritage", t: "Indian Heritage", c: "heritage" },
                       { v: "royal", t: "Royal Violet", c: "royal" },
                       { v: "minimal", t: "Minimal Dark", c: "minimal" },
+                      { v: "aurora", t: "Aurora Flow", c: "aurora" },
+                      { v: "cinematic", t: "Cinematic Gold", c: "cinematic" },
                     ].map((o) => (
                       <button
                         key={o.v}
@@ -1191,6 +1206,7 @@ export function Studio() {
                           ? `${elapsed < 20 ? "Finding licensed images" : elapsed < 60 ? "Building and captioning scenes" : "FFmpeg is encoding the final MP4"} · ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")} elapsed`
                           : "Related licensed images will be selected dynamically from Wikimedia Commons."}
                       </span>
+                      {rendering&&<div className="render-story-message"><Sparkle weight="fill"/><span key={Math.floor(elapsed/9)}>{renderMessages[Math.floor(elapsed/9)%renderMessages.length]}</span></div>}
                       {rendering && (
                         <div className="progress">
                           <i style={{ width: `${progress}%` }} />
