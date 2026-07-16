@@ -108,6 +108,16 @@ function scenesFrom(script: string) {
   }
   return scenes.filter(Boolean).slice(0, 48);
 }
+function compactScenes(scenes: string[], limit: number) {
+  if (scenes.length <= limit) return scenes;
+  const compacted: string[] = [];
+  for (let index = 0; index < limit; index++) {
+    const start = Math.floor((index * scenes.length) / limit);
+    const end = Math.floor(((index + 1) * scenes.length) / limit);
+    compacted.push(scenes.slice(start, Math.max(start + 1, end)).join(" "));
+  }
+  return compacted.filter(Boolean);
+}
 function wrap(value: string, max = 30) {
   const words = value.split(" "),
     lines: string[] = [];
@@ -375,6 +385,7 @@ async function commonsImage(
         headers: {
           "user-agent": "DrishyanaAI/0.1 (local educational renderer)",
         },
+        signal: AbortSignal.timeout(process.env.VERCEL ? 7000 : 12000),
       },
     );
     if (!response.ok) return null;
@@ -392,6 +403,7 @@ async function commonsImage(
     const info = page.imageinfo[0],
       image = await fetch(info.thumburl, {
         headers: { "user-agent": "DrishyanaAI/0.1" },
+        signal: AbortSignal.timeout(process.env.VERCEL ? 10000 : 20000),
       });
     if (!image.ok) return null;
     await writeFile(output, Buffer.from(await image.arrayBuffer()));
@@ -409,10 +421,10 @@ async function commonsImage(
   }
 }
 async function openverseImage(query:string,output:string,seed=0,used=new Set<string>()):Promise<MediaCredit|null>{try{
- const params=new URLSearchParams({q:query,page_size:"30",mature:"false",license_type:"commercial",size:"large"}),response=await fetch(`https://api.openverse.org/v1/images/?${params}`,{headers:{"user-agent":"DrishyanaAI/0.3"},signal:AbortSignal.timeout(12000)});if(!response.ok)return null;
+ const params=new URLSearchParams({q:query,page_size:"30",mature:"false",license_type:"commercial",size:"large"}),response=await fetch(`https://api.openverse.org/v1/images/?${params}`,{headers:{"user-agent":"DrishyanaAI/0.3"},signal:AbortSignal.timeout(process.env.VERCEL?7000:12000)});if(!response.ok)return null;
  const data=await response.json(),terms=query.toLowerCase().split(/[^a-z0-9]+/).filter(term=>term.length>3),score=(item:any)=>{const text=[item.title,...(item.tags??[]).map((tag:any)=>tag.name)].filter(Boolean).join(" ").toLowerCase();return terms.reduce((total,term)=>total+(text.includes(term)?1:0),0)},results=(data.results??[]).filter((item:any)=>(item.url||item.thumbnail)&&Math.max(Number(item.width??0),Number(item.height??0))>=1200&&!used.has(item.foreign_landing_url||item.url)).sort((a:any,b:any)=>score(b)-score(a));
  const pool=results.slice(0,Math.min(10,results.length)),selected=pool[seed%Math.max(1,pool.length)];if(!selected)return null;
- let image=await fetch(selected.url||selected.thumbnail,{headers:{"user-agent":"DrishyanaAI/0.3"},signal:AbortSignal.timeout(20000)});if(!image.ok)image=await fetch(selected.thumbnail,{headers:{"user-agent":"DrishyanaAI/0.3"},signal:AbortSignal.timeout(15000)});if(!image.ok)return null;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>20_000_000)return null;
+ let image=await fetch(selected.url||selected.thumbnail,{headers:{"user-agent":"DrishyanaAI/0.3"},signal:AbortSignal.timeout(process.env.VERCEL?10000:20000)});if(!image.ok)image=await fetch(selected.thumbnail,{headers:{"user-agent":"DrishyanaAI/0.3"},signal:AbortSignal.timeout(process.env.VERCEL?7000:15000)});if(!image.ok)return null;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>20_000_000)return null;
  await writeFile(output,bytes);used.add(selected.foreign_landing_url||selected.url);return{title:selected.title||query,source:selected.foreign_landing_url||selected.url,artist:selected.creator||"Openverse contributor",license:selected.license?.toUpperCase()||"Open license"}
  }catch{return null}}
 async function commonsVideo(
@@ -438,7 +450,7 @@ async function commonsVideo(
         headers: {
           "user-agent": "DrishyanaAI/0.1 (local educational renderer)",
         },
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(process.env.VERCEL ? 7000 : 12000),
       },
     );
     if (!response.ok) return null;
@@ -472,7 +484,7 @@ async function commonsVideo(
       path = `${outputBase}.${ext}`,
       video = await fetch(selected.src, {
         headers: { "user-agent": "DrishyanaAI/0.1" },
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(process.env.VERCEL ? 15000 : 30000),
       });
     if (
       !video.ok ||
@@ -751,7 +763,10 @@ export async function POST(request: NextRequest) {
         hasAudio = false;
       }
     }
-    const storyScenes = scenesFrom(script),
+    const storyScenes = compactScenes(
+        scenesFrom(script),
+        process.env.VERCEL ? 10 : 48,
+      ),
       scenes = hasTitle
         ? [`${title}${titleDetails ? `\n${titleDetails}` : ""}`, ...storyScenes]
         : storyScenes,
@@ -765,7 +780,9 @@ export async function POST(request: NextRequest) {
     const sceneDurations = weights.map((weight) =>
       hasAudio
         ? Math.max(2.8, ((audioDuration + 0.8) * weight) / weightTotal)
-        : Math.max(3.5, weight / 13),
+        : process.env.VERCEL
+          ? Math.max(3.5, Math.min(8, weight / 13))
+          : Math.max(3.5, weight / 13),
     );
     const portrait = body.format === "9:16",
       square = body.format === "1:1",
@@ -783,7 +800,8 @@ export async function POST(request: NextRequest) {
     const usedImages = new Set<string>();
     let relatedVideosUsed = 0,
       imageDownloads = 0;
-    const randomOffset = Math.floor(Math.random() * 1000);
+    const randomOffset = Math.floor(Math.random() * 1000),
+      mediaDeadline = Date.now() + (process.env.VERCEL ? 75_000 : 240_000);
     for (let i = 0; i < scenes.length; i++) {
       let path = body.templateOnly && uploaded.length ? uploaded[i % uploaded.length] : i < uploaded.length ? uploaded[i] : undefined;
       if (!path) {
@@ -794,9 +812,10 @@ export async function POST(request: NextRequest) {
           imageSearch = titleContextQuery(title,i,"image") ?? `${title.trim()} ${sceneImageQuery}`.trim(),
           clipSearch = titleContextQuery(title,i,"video") ?? `${title.trim()} ${sceneVideoQuery}`.trim(),
           storyIndex = i - (hasTitle ? 1 : 0),
-          maxRelatedVideos=Math.min(4,Math.ceil(storyScenes.length/3)),
+          maxRelatedVideos=process.env.VERCEL?2:Math.min(4,Math.ceil(storyScenes.length/3)),
           tryVideo =
             !!body.useRelatedVideos &&
+            Date.now() < mediaDeadline &&
             storyIndex >= 0 &&
             relatedVideosUsed < maxRelatedVideos &&
             storyIndex % 3 === 1;
@@ -812,7 +831,11 @@ export async function POST(request: NextRequest) {
             relatedVideosUsed++;
           }
         }
-        if (path === fallback && imageDownloads < 20) {
+        if (
+          path === fallback &&
+          Date.now() < mediaDeadline &&
+          imageDownloads < (process.env.VERCEL ? 8 : 20)
+        ) {
           const candidate = join(work, `media-${imageDownloads}.jpg`);
           let credit = (await commonsImage(
               imageSearch,
@@ -820,7 +843,7 @@ export async function POST(request: NextRequest) {
               randomOffset + i,
               usedImages,
             )) ?? (await openverseImage(imageSearch,candidate,randomOffset+i,usedImages));
-          if(!credit&&imageSearch!==sceneImageQuery)credit=(await commonsImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages))??(await openverseImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages));
+          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await commonsImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages))??(await openverseImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages));
           imageDownloads++;
           if (credit) {
             path = candidate;
