@@ -853,9 +853,12 @@ export async function POST(request: NextRequest) {
     const music = body.backgroundMusicUrl?.startsWith("/uploads/voices/") ? join(process.cwd(),"public","uploads","voices",body.backgroundMusicUrl.split("/").pop()!) : "", hasUploadedMusic = !!music && existsSync(music), musicPreset=body.backgroundMusicPreset, hasMusic=hasUploadedMusic||!!musicPreset;
     if (hasUploadedMusic) args.push("-stream_loop","-1","-i",music);
     else if(musicPreset){const tone=musicPreset==="cinematic"?"0.10*sin(2*PI*110*t)+0.045*sin(2*PI*165*t)+0.025*sin(2*PI*220*t)":"0.07*sin(2*PI*196*t)+0.035*sin(2*PI*293.66*t)+0.02*sin(2*PI*392*t)";args.push("-f","lavfi","-i",`aevalsrc=${tone}:s=44100`)}
-    const font = telugu
-        ? "/System/Library/Fonts/KohinoorTelugu.ttc"
-        : "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    const font = join(
+        process.cwd(),
+        "assets",
+        "fonts",
+        telugu ? "NotoSansTelugu.ttf" : "NotoSans.ttf",
+      ),
       fontSize = {
         small: w < h ? 26 : 30,
         medium: w < h ? 36 : 40,
@@ -874,7 +877,7 @@ export async function POST(request: NextRequest) {
             : body.showCaptions === false
               ? ""
               : captionFilter.replace(captions[0], captions[i]);
-        const branding=!showBranding?"":`,drawtext=fontfile='/System/Library/Fonts/Supplemental/Arial Bold.ttf':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*24)),still=!isVideo(slides[i]),motion=!still||body.imageAnimation==="none"||!body.imageAnimation?`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h}`:body.imageAnimation==="zoom"?`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},zoompan=z='min(zoom+0.0007,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=24`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=1:s=${w}x${h}:fps=24`:`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
+        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*24)),still=!isVideo(slides[i]),motion=!still||body.imageAnimation==="none"||!body.imageAnimation?`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h}`:body.imageAnimation==="zoom"?`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},zoompan=z='min(zoom+0.0007,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=24`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=1:s=${w}x${h}:fps=24`:`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
         return `[${i}:v]${motion},setsar=1,format=yuv420p${cap}${branding}[v${i}]`;
       })
       .join(";");

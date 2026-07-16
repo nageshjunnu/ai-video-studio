@@ -15,6 +15,8 @@ const nextConfig: NextConfig = {
    'node_modules/@ffprobe-installer/linux-x64/**/*',
    '../../node_modules/@ffmpeg-installer/linux-x64/**/*',
    '../../node_modules/@ffprobe-installer/linux-x64/**/*',
+   'apps/web/assets/fonts/**/*',
+   'assets/fonts/**/*',
   ],
  },
 };
