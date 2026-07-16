@@ -405,7 +405,10 @@ export function Studio() {
     try {
       const r = await fetch("/api/script-generate", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...(session()?.accessToken ? { authorization: `Bearer ${session()?.accessToken}` } : {}),
+          },
           body: JSON.stringify({
             topic: subject,
             language: scriptLanguage,
@@ -432,7 +435,10 @@ export function Studio() {
     try {
       const r = await fetch("/api/script-generate", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...(session()?.accessToken ? { authorization: `Bearer ${session()?.accessToken}` } : {}),
+          },
           body: JSON.stringify({
             topic: scriptTopic,
             content: script,

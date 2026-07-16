@@ -304,6 +304,25 @@ function videoQuery(text: string, title: string, index = 0) {
     ]
   );
 }
+function scriptKeywords(title:string,script:string){
+  const mapped:string[]=[];
+  const pairs:[RegExp,string][]=[
+    [/విక్రమాదిత్య|vikramaditya/i,"Vikramaditya Ujjain ancient Indian king royal court"],
+    [/ఉజ్జయిని|ఉజ్జయిన్|ujjain/i,"Ujjain India Mahakaleshwar temple heritage"],
+    [/బేతాళ|vetala|betal/i,"Vikram Betal Indian folklore night forest"],
+    [/నవరత్న|కాళిదాస|kalidasa|navaratna/i,"ancient Indian scholars Sanskrit manuscript royal court"],
+    [/మహాకాళ|శివ|mahakal|shiva/i,"Mahakaleshwar Shiva temple Ujjain"],
+    [/యుద్ధ|శకుల|war|battle/i,"ancient Indian warriors fort battle"],
+    [/రైత|village|farmer/i,"Indian village farmers rural life"],
+    [/ai|artificial intelligence|machine learning|robot|technology/i,"artificial intelligence futuristic technology"]
+  ];
+  for(const [pattern,value] of pairs)if(pattern.test(`${title} ${script}`))mapped.push(value);
+  const english=`${title} ${script}`.replace(/[^a-zA-Z0-9 ]/g," ").toLowerCase().split(/\s+/).filter(word=>word.length>3&&!/^(this|that|with|from|have|were|their|about|story|video|image|history|introduction|conclusion|officially|republic|country|world|people|important)$/i.test(word));
+  const counts=new Map<string,number>();
+  for(const word of english)counts.set(word,(counts.get(word)??0)+1);
+  const common=[...counts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8).map(([word])=>word).join(" ");
+  return Array.from(new Set([...mapped,common].filter(Boolean))).slice(0,5);
+}
 function titleContextQuery(title: string, index: number, kind: "image" | "video") {
   const contexts: [RegExp, string[], string[]][] = [
     [
@@ -329,9 +348,29 @@ type MediaCredit = {
   license: string;
 };
 function providerQueries(query:string){
-  const ascii=query.replace(/[^a-zA-Z0-9 ]/g," ").replace(/\s+/g," ").trim(),words=ascii.split(" ").filter(word=>word.length>2&&!/^(the|and|from|with|story|video|image|introduction|history)$/i.test(word));
-  const focused=words.slice(0,5).join(" "),ai=/\b(ai|artificial intelligence|machine learning|robot|technology|digital)\b/i.test(ascii);
-  return Array.from(new Set([ascii,focused,ai?"artificial intelligence technology future":null,"cinematic India culture landscape"].filter(Boolean))) as string[];
+  const ascii=query.replace(/[^a-zA-Z0-9 ]/g," ").replace(/\s+/g," ").trim(),words=ascii.split(" ").filter(word=>word.length>2&&!/^(the|and|from|with|story|video|image|introduction|history|officially|republic|country|world)$/i.test(word));
+  const focused=words.slice(0,5).join(" "),ai=/\b(ai|artificial intelligence|machine learning|robot|technology|digital)\b/i.test(ascii),india=/\b(india|indian|bharat|ujjain|temple|king|royal|heritage|ancient)\b/i.test(ascii);
+  return Array.from(new Set([
+    focused,
+    focused ? `cinematic ${focused}` : null,
+    focused ? `documentary ${focused}` : null,
+    ai ? "artificial intelligence technology future" : null,
+    india ? "Indian heritage temple royal culture" : null,
+    ascii,
+  ].filter(Boolean))) as string[];
+}
+async function visualPrompt(title:string,scene:string,kind:"image"|"video",fallback:string){
+  const key=process.env.GEMINI_API_KEY;
+  if(!key)return fallback;
+  try{
+    const prompt=`Create one short English search query for finding a ${kind==="video"?"stock video clip":"high quality photo"} that visually matches this video scene. Avoid abstract words. Use concrete places, people, objects, action, culture, era, environment. Return JSON only: {"query":"..."}\nTitle: ${title || "Untitled"}\nScene: ${scene.slice(0,900)}`;
+    const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(key)}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:.35,maxOutputTokens:90,responseMimeType:"application/json"}}),signal:AbortSignal.timeout(process.env.VERCEL?8000:15000)});
+    if(!response.ok)return fallback;
+    const data=await response.json(),text=data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if(!text)return fallback;
+    const parsed=JSON.parse(text),query=String(parsed?.query??"").replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim();
+    return query.length>5?query.slice(0,120):fallback;
+  }catch{return fallback}
 }
 async function pixabayImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
   const key=process.env.PIXABAY_API_KEY;if(!key)return null;
@@ -339,7 +378,7 @@ async function pixabayImage(query:string,output:string,seed:number,portrait:bool
 }
 async function pixabayVideo(query:string,outputBase:string,seed:number,portrait:boolean):Promise<{path:string;credit:MediaCredit}|null>{
   const key=process.env.PIXABAY_API_KEY;if(!key)return null;
-  for(const search of providerQueries(query)){try{const params=new URLSearchParams({key,q:search.slice(0,100),video_type:"film",orientation:portrait?"vertical":"horizontal",safesearch:"true",order:"popular",per_page:"30"}),response=await fetch(`https://pixabay.com/api/videos/?${params}`,{signal:AbortSignal.timeout(10000)});if(!response.ok)continue;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>hit.videos?.medium?.url||hit.videos?.large?.url),hit=hits[seed%Math.max(1,hits.length)];if(!hit)continue;const choices=[hit.videos?.large,hit.videos?.medium,hit.videos?.small].filter((file:any)=>file?.url&&Number(file.width)>=720&&Number(file.size||0)<=45_000_000),selected=choices[0];if(!selected)continue;const video=await fetch(selected.url,{signal:AbortSignal.timeout(25000)});if(!video.ok)continue;const bytes=Buffer.from(await video.arrayBuffer());if(!bytes.length||bytes.length>45_000_000)continue;const path=`${outputBase}.mp4`;await writeFile(path,bytes);return{path,credit:{title:hit.tags||`${search} video`,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}}catch{continue}}return null;
+  for(const search of providerQueries(query)){try{const params=new URLSearchParams({key,q:search.slice(0,100),video_type:"film",orientation:portrait?"vertical":"horizontal",safesearch:"true",order:"popular",per_page:"40"}),response=await fetch(`https://pixabay.com/api/videos/?${params}`,{signal:AbortSignal.timeout(10000)});if(!response.ok)continue;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>hit.videos?.medium?.url||hit.videos?.large?.url||hit.videos?.small?.url),hit=hits[seed%Math.max(1,hits.length)];if(!hit)continue;const choices=[hit.videos?.large,hit.videos?.medium,hit.videos?.small].filter((file:any)=>file?.url&&Number(file.width||0)>=640&&Number(file.size||0)<=45_000_000),selected=choices[0];if(!selected)continue;const video=await fetch(selected.url,{signal:AbortSignal.timeout(25000)});if(!video.ok)continue;const bytes=Buffer.from(await video.arrayBuffer());if(!bytes.length||bytes.length>45_000_000)continue;const path=`${outputBase}.mp4`;await writeFile(path,bytes);return{path,credit:{title:hit.tags||`${search} video`,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}}catch{continue}}return null;
 }
 async function pexelsImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
   const key=process.env.PEXELS_API_KEY;if(!key)return null;
@@ -447,6 +486,22 @@ async function openverseImage(query:string,output:string,seed=0,used=new Set<str
  let image=await fetch(selected.url||selected.thumbnail,{headers:{"user-agent":"DrishyanaAI/0.3"},signal:AbortSignal.timeout(process.env.VERCEL?10000:20000)});if(!image.ok)image=await fetch(selected.thumbnail,{headers:{"user-agent":"DrishyanaAI/0.3"},signal:AbortSignal.timeout(process.env.VERCEL?7000:15000)});if(!image.ok)return null;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>20_000_000)return null;
  await writeFile(output,bytes);used.add(selected.foreign_landing_url||selected.url);return{title:selected.title||query,source:selected.foreign_landing_url||selected.url,artist:selected.creator||"Openverse contributor",license:selected.license?.toUpperCase()||"Open license"}
  }catch{return null}}
+async function generatedSceneImage(query:string,scene:string,output:string,seed:number,portrait:boolean):Promise<MediaCredit|null>{
+  try{
+    const subject=query.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,140)||"cinematic story scene";
+    const mood=/\b(ai|artificial intelligence|technology|digital|robot)\b/i.test(subject)?"futuristic AI technology, cinematic lighting, premium editorial still":"cinematic documentary, rich realistic detail, high quality, natural light";
+    const prompt=`${subject}. ${mood}. Scene context: ${scene.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,240)}. No text, no watermark, full screen composition`;
+    const params=new URLSearchParams({width:portrait?"720":"1280",height:portrait?"1280":"720",seed:String(seed),model:"flux",nologo:"true",enhance:"true"});
+    const response=await fetch(`https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?${params}`,{headers:{"accept":"image/*","user-agent":"DrishyanaAI/0.4"},signal:AbortSignal.timeout(process.env.VERCEL?22000:45000)});
+    if(!response.ok)return null;
+    const type=response.headers.get("content-type")||"";
+    if(!type.startsWith("image/"))return null;
+    const bytes=Buffer.from(await response.arrayBuffer());
+    if(!bytes.length||bytes.length>18_000_000)return null;
+    await writeFile(output,bytes);
+    return{title:subject,source:"Pollinations AI image generation",artist:"Generated image",license:"Generated visual"}
+  }catch{return null}
+}
 async function commonsVideo(
   query: string,
   outputBase: string,
@@ -530,7 +585,15 @@ async function commonsVideo(
     return null;
   }
 }
-function rasterSlide(index: number, w: number, h: number, style = "royal") {
+function subjectSeed(subject: string) {
+  let hash = 2166136261;
+  for (const char of subject) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash);
+}
+function rasterSlide(index: number, w: number, h: number, style = "royal", subject = "") {
   const palettes: Record<string, number[][][]> = {
     royal: [
       [
@@ -590,7 +653,8 @@ function rasterSlide(index: number, w: number, h: number, style = "royal") {
     ],
   };
   const set = palettes[style] ?? palettes.royal,
-    colors = set[index % set.length];
+    seed = subjectSeed(`${subject}-${index}`),
+    colors = set[(index + seed) % set.length];
   const pixels = Buffer.alloc(w * h * 3);
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
@@ -606,8 +670,8 @@ function rasterSlide(index: number, w: number, h: number, style = "royal") {
     pixels[p + 1] = color[1];
     pixels[p + 2] = color[2];
   };
-  const sunX = w * (0.2 + (index % 5) * 0.14),
-    sunY = h * (0.18 + (index % 3) * 0.05),
+  const sunX = w * (0.16 + ((seed % 7) / 10)),
+    sunY = h * (0.15 + ((seed >> 3) % 4) * 0.055),
     radius = Math.max(28, Math.min(w, h) * 0.065);
   for (let y = Math.max(0, sunY - radius); y < Math.min(h, sunY + radius); y++)
     for (
@@ -628,7 +692,7 @@ function rasterSlide(index: number, w: number, h: number, style = "royal") {
       (0.62 + 0.08 * Math.sin((x / w) * Math.PI * (2 + (index % 3)) + index));
     for (let y = ridge; y < h; y++) paint(x, y, dark);
   }
-  const buildingX = w * (0.15 + (index % 4) * 0.18),
+  const buildingX = w * (0.12 + ((seed >> 5) % 5) * 0.145),
     buildingW = w * 0.22,
     baseY = h * 0.72;
   for (let x = buildingX; x < buildingX + buildingW; x++)
@@ -639,6 +703,38 @@ function rasterSlide(index: number, w: number, h: number, style = "royal") {
       top = baseY - h * (0.22 + (tower % 2) * 0.06);
     for (let x = tx; x < tx + tw; x++)
       for (let y = top; y < baseY; y++) paint(x, y, [24, 18, 30]);
+  }
+  const accent = [255, 218, 128];
+  const lower = subject.toLowerCase();
+  const drawCircle = (cx: number, cy: number, r: number, color: number[]) => {
+    for (let y = cy - r; y <= cy + r; y++)
+      for (let x = cx - r; x <= cx + r; x++)
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= r ** 2) paint(x, y, color);
+  };
+  const drawLine = (x1: number, y1: number, x2: number, y2: number, color: number[]) => {
+    const steps = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1));
+    for (let i = 0; i <= steps; i++) paint(x1 + ((x2 - x1) * i) / steps, y1 + ((y2 - y1) * i) / steps, color);
+  };
+  if (/ai|artificial|technology|digital|robot/.test(lower)) {
+    for (let n = 0; n < 14; n++) {
+      const cx = Math.floor(w * (0.18 + (((seed >> n) % 60) / 100)));
+      const cy = Math.floor(h * (0.22 + (((seed >> (n + 4)) % 48) / 100)));
+      drawCircle(cx, cy, Math.max(4, Math.floor(Math.min(w, h) * 0.008)), accent);
+      if (n) drawLine(cx, cy, Math.floor(w * 0.5), Math.floor(h * 0.48), [120, 230, 255]);
+    }
+  } else if (/temple|ujjain|india|king|royal|heritage|history|vikram|shiva/.test(lower) || /[\u0C00-\u0C7F]/u.test(subject)) {
+    const cx = Math.floor(w * 0.72), top = Math.floor(h * 0.3), bottom = Math.floor(h * 0.76);
+    for (let level = 0; level < 5; level++) {
+      const y = top + level * Math.floor((bottom - top) / 6), half = Math.floor(w * (0.04 + level * 0.018));
+      for (let py = y; py < y + h * 0.045; py++) for (let px = cx - half; px < cx + half; px++) paint(px, py, [30, 20, 16]);
+    }
+    drawCircle(Math.floor(w * 0.2), Math.floor(h * 0.26), Math.floor(Math.min(w, h) * 0.045), [255, 185, 94]);
+  } else {
+    for (let n = 0; n < 9; n++) {
+      const x = Math.floor(w * (0.12 + (((seed >> n) % 76) / 100)));
+      const y = Math.floor(h * (0.2 + (((seed >> (n + 7)) % 56) / 100)));
+      drawCircle(x, y, Math.max(8, Math.floor(Math.min(w, h) * 0.018)), [230, 235, 255]);
+    }
   }
   return Buffer.concat([Buffer.from(`P6\n${w} ${h}\n255\n`), pixels]);
 }
@@ -824,6 +920,7 @@ export async function POST(request: NextRequest) {
     let relatedVideosUsed = 0,
       imageDownloads = 0;
     const randomOffset = Math.floor(Math.random() * 1000),
+      globalKeywords = scriptKeywords(title, script),
       mediaDeadline = Date.now() + (process.env.VERCEL ? 75_000 : 240_000);
     for (let i = 0; i < scenes.length; i++) {
       let path = body.templateOnly && uploaded.length ? uploaded[i % uploaded.length] : i < uploaded.length ? uploaded[i] : undefined;
@@ -834,18 +931,24 @@ export async function POST(request: NextRequest) {
           sceneVideoQuery = videoQuery(scenes[i], title, i),
           imageContext=titleContextQuery(title,i,"image"),
           videoContext=titleContextQuery(title,i,"video"),
-          imageSearch = `${imageContext||title.trim()} ${sceneImageQuery}`.trim(),
-          clipSearch = `${videoContext||title.trim()} ${sceneVideoQuery}`.trim(),
+          keywordContext = globalKeywords[i % Math.max(1, globalKeywords.length)] ?? "",
+          imageSearch = await visualPrompt(title,scenes[i],"image",`${keywordContext} ${imageContext||title.trim()} ${sceneImageQuery}`.trim()),
+          clipSearch = await visualPrompt(title,scenes[i],"video",`${keywordContext} ${videoContext||title.trim()} ${sceneVideoQuery}`.trim()),
           storyIndex = i - (hasTitle ? 1 : 0),
-          maxRelatedVideos=process.env.VERCEL?2:Math.min(4,Math.ceil(storyScenes.length/3)),
+          maxRelatedVideos=process.env.VERCEL?4:Math.min(10,Math.ceil(storyScenes.length/2)),
+          middleStart=Math.max(0,Math.floor(storyScenes.length*.25)),
+          middleEnd=Math.max(middleStart,Math.ceil(storyScenes.length*.85)),
           tryVideo =
             !!body.useRelatedVideos &&
             Date.now() < mediaDeadline &&
             storyIndex >= 0 &&
+            storyIndex >= middleStart &&
+            storyIndex <= middleEnd &&
             relatedVideosUsed < maxRelatedVideos &&
-            storyIndex % 3 === 1;
+            (storyIndex - middleStart) % 2 === 0;
         if (tryVideo) {
           let result = await pixabayVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait)??await pexelsVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait);
+          if(!result&&clipSearch!==sceneVideoQuery)result=await pixabayVideo(`${keywordContext} ${sceneVideoQuery}`,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i+21,portrait)??await pexelsVideo(`${keywordContext} ${sceneVideoQuery}`,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i+21,portrait);
           if (result) {
             path = result.path;
             credits.push(result.credit);
@@ -858,8 +961,10 @@ export async function POST(request: NextRequest) {
           imageDownloads < (process.env.VERCEL ? 8 : 20)
         ) {
           const candidate = join(work, `media-${imageDownloads}.jpg`);
-          let credit = (await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await openverseImage(imageSearch,candidate,randomOffset+i,usedImages));
-          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await pixabayImage(sceneImageQuery,candidate,randomOffset+i+17,portrait,usedImages))??(await pexelsImage(sceneImageQuery,candidate,randomOffset+i+17,portrait,usedImages))??(await openverseImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages));
+          let credit = (await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages));
+          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages))??(await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages));
+          if(!credit&&Date.now()<mediaDeadline)credit=await openverseImage(imageSearch,candidate,randomOffset+i+31,usedImages);
+          if(!credit&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
           imageDownloads++;
           if (credit) {
             path = candidate;
@@ -868,8 +973,15 @@ export async function POST(request: NextRequest) {
         }
       }
       const caption = join(work, `caption-${i}.txt`);
-      if (path.endsWith(".ppm"))
-        await writeFile(path, rasterSlide(i, w, h, body.style));
+      if (path.endsWith(".ppm")) {
+        await writeFile(path, rasterSlide(i, w, h, body.style, `${title} ${scenes[i]}`));
+        credits.push({
+          title: `Generated visual for ${title || "story scene"} ${i + 1}`,
+          source: "Built-in scene-aware renderer",
+          artist: "Drishyana AI",
+          license: "Generated fallback",
+        });
+      }
       await writeFile(caption, wrap(scenes[i], w < h ? 22 : 34).join("\n"));
       slides.push(path);
       captions.push(caption);
@@ -919,7 +1031,7 @@ export async function POST(request: NextRequest) {
             : body.showCaptions === false
               ? ""
               : captionFilter.replace(captions[0], captions[i]);
-        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*renderFps)),still=!isVideo(slides[i]),base=`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h},eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`,motion=!still||body.imageAnimation==="none"||!body.imageAnimation?base:body.imageAnimation==="zoom"?`scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},zoompan=z='min(zoom+0.0007,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=${renderFps},eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=1:s=${w}x${h}:fps=${renderFps},eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:`${base},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
+        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*renderFps)),still=!isVideo(slides[i]),base=`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`,motion=!still||body.imageAnimation==="none"||!body.imageAnimation?base:body.imageAnimation==="zoom"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,crop=${Math.round(w*1.12)}:${Math.round(h*1.12)},zoompan=z='min(zoom+0.0012,1.16)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${w}x${h}:fps=${renderFps},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.18)}:${Math.round(h*1.18)}:force_original_aspect_ratio=increase,crop=${Math.round(w*1.18)}:${Math.round(h*1.18)},zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=${frames}:s=${w}x${h}:fps=${renderFps},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:`${base},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
         return `[${i}:v]${motion},setsar=1,format=yuv420p${cap}${branding}[v${i}]`;
       })
       .join(";");

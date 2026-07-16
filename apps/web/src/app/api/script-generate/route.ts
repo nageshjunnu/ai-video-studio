@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { serverApiUrl } from "@/lib/server-api";
 
 type WikiResult = {
   title: string;
@@ -61,6 +62,64 @@ function fallback(topic: string, language: string) {
     script: `Introduction\nThis video explores ${topic} and why it matters.\n\n1. Background\nWe begin with the people, place, and events that shaped ${topic}.\n\n2. Key developments\nThe important challenges, changes, and achievements reveal how the subject developed over time.\n\nConclusion\nThe story of ${topic} offers useful lessons about knowledge, courage, and responsible choices.`,
   };
 }
+async function premiumAccess(request: NextRequest) {
+  const authorization = request.headers.get("authorization");
+  if (!authorization) return false;
+  try {
+    const response = await fetch(`${serverApiUrl()}/auth/me`, {
+      headers: { authorization },
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return false;
+    const account = await response.json();
+    return account?.role === "ADMIN" || account?.hasPaid === true;
+  } catch {
+    return false;
+  }
+}
+async function geminiDraft(topic: string, source: string, language: string, action: string) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  const outputLanguage = language === "te" ? "Telugu" : "English";
+  const prompt =
+    action === "title"
+      ? `Create one concise, cinematic YouTube video title in ${outputLanguage}. Use this topic or script:\n\n${source.slice(0, 3500)}\n\nReturn only JSON: {"title":"..."}`
+      : `Write an original ${outputLanguage} video script for a short educational/story video.\nTopic: ${topic}\nSource/context: ${source.slice(0, 3500)}\n\nRequirements:\n- Around 180 words unless the topic needs slightly more.\n- Use clear section headings.\n- Make it suitable for narration.\n- Do not include markdown symbols, bullets, URLs, or special characters.\nReturn only JSON: {"title":"...","script":"..."}`;
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.75,
+            maxOutputTokens: action === "title" ? 120 : 900,
+            responseMimeType: "application/json",
+          },
+        }),
+        signal: AbortSignal.timeout(25000),
+      },
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) return null;
+    const parsed = JSON.parse(text);
+    if (action === "title" && parsed?.title) return { title: String(parsed.title).trim() };
+    if (parsed?.title && parsed?.script) {
+      return {
+        title: String(parsed.title).trim(),
+        script: String(parsed.script).replace(/[#*_~`^<>\[\]{}|\\/@©®™•▪■◆◇★☆✓✔✦✧]+/gu, " ").replace(/[ \t]+/g, " ").trim(),
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 export async function POST(request: NextRequest) {
   const {
@@ -82,8 +141,17 @@ export async function POST(request: NextRequest) {
     );
   const clean = source.replace(/\s+/g, " "),
     subject = String(topic || clean.split(/[.!?।\n]/)[0]).slice(0, 120),
+    canUseGemini = await premiumAccess(request),
+    gemini = canUseGemini ? await geminiDraft(subject, clean, language, action) : null,
     article = await wiki(subject, language);
   if (action === "title") {
+    if (gemini?.title)
+      return NextResponse.json({
+        title: gemini.title,
+        generated: true,
+        provider: "gemini",
+        premium: true,
+      });
     const title = article?.title
       ? language === "te"
         ? `${article.title} — కథ మరియు విశేషాలు`
@@ -93,6 +161,17 @@ export async function POST(request: NextRequest) {
       title,
       generated: true,
       source: article?.content_urls?.desktop?.page ?? null,
+    });
+  }
+  if (gemini && "script" in gemini) {
+    return NextResponse.json({
+      title: gemini.title,
+      script: gemini.script,
+      generated: true,
+      language,
+      source: "gemini",
+      provider: "gemini",
+      premium: true,
     });
   }
   if (!article) {
