@@ -284,7 +284,21 @@ export function Studio() {
           imageAnimation,
         }),
       });
-      const data = await response.json();
+      const rawResponse = await response.text();
+      let data: any;
+      try {
+        data = rawResponse ? JSON.parse(rawResponse) : {};
+      } catch {
+        const timedOut =
+          response.status === 504 ||
+          rawResponse.includes("FUNCTION_INVOCATION_TIMEOUT") ||
+          rawResponse.includes("An error occurred with your deployment");
+        data = {
+          error: timedOut
+            ? "Video rendering exceeded Vercel's 5-minute limit. Your reserved credits were refunded. Use a shorter script or deploy the background render worker."
+            : rawResponse.slice(0, 500) || "Rendering service returned an invalid response.",
+        };
+      }
       if (!response.ok) throw new Error(data.error || "Rendering failed");
       await api(`/projects/${projectId}/complete`, {
         method: "POST",
