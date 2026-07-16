@@ -328,6 +328,14 @@ type MediaCredit = {
   artist: string;
   license: string;
 };
+async function pixabayImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
+  const key=process.env.PIXABAY_API_KEY;if(!key)return null;
+  try{const params=new URLSearchParams({key,q:query.slice(0,100),image_type:"photo",orientation:portrait?"vertical":"horizontal",min_width:portrait?"720":"1280",min_height:portrait?"1280":"720",safesearch:"true",order:"popular",per_page:"50"}),response=await fetch(`https://pixabay.com/api/?${params}`,{signal:AbortSignal.timeout(10000)});if(!response.ok)return null;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>(hit.largeImageURL||hit.webformatURL)&&!used.has(hit.pageURL)),hit=hits[seed%Math.max(1,hits.length)];if(!hit)return null;const image=await fetch(hit.fullHDURL||hit.largeImageURL||hit.webformatURL,{signal:AbortSignal.timeout(18000)});if(!image.ok)return null;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)return null;await writeFile(output,bytes);used.add(hit.pageURL);return{title:hit.tags||query,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}catch{return null}
+}
+async function pixabayVideo(query:string,outputBase:string,seed:number,portrait:boolean):Promise<{path:string;credit:MediaCredit}|null>{
+  const key=process.env.PIXABAY_API_KEY;if(!key)return null;
+  try{const params=new URLSearchParams({key,q:query.slice(0,100),video_type:"film",orientation:portrait?"vertical":"horizontal",safesearch:"true",order:"popular",per_page:"30"}),response=await fetch(`https://pixabay.com/api/videos/?${params}`,{signal:AbortSignal.timeout(10000)});if(!response.ok)return null;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>hit.videos?.medium?.url||hit.videos?.large?.url),hit=hits[seed%Math.max(1,hits.length)];if(!hit)return null;const choices=[hit.videos?.large,hit.videos?.medium,hit.videos?.small].filter((file:any)=>file?.url&&Number(file.width)>=720&&Number(file.size||0)<=45_000_000),selected=choices[0];if(!selected)return null;const video=await fetch(selected.url,{signal:AbortSignal.timeout(25000)});if(!video.ok)return null;const bytes=Buffer.from(await video.arrayBuffer());if(!bytes.length||bytes.length>45_000_000)return null;const path=`${outputBase}.mp4`;await writeFile(path,bytes);return{path,credit:{title:hit.tags||`${query} video`,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}}catch{return null}
+}
 async function pexelsImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
   const key=process.env.PEXELS_API_KEY;if(!key)return null;
   try{const params=new URLSearchParams({query,orientation:portrait?"portrait":"landscape",size:"large",per_page:"30"}),response=await fetch(`https://api.pexels.com/v1/search?${params}`,{headers:{Authorization:key},signal:AbortSignal.timeout(10000)});if(!response.ok)return null;const data=await response.json(),photos=(data.photos??[]).filter((photo:any)=>photo.src?.large2x&&!used.has(photo.url)),photo=photos[seed%Math.max(1,photos.length)];if(!photo)return null;const image=await fetch(photo.src.original||photo.src.large2x,{signal:AbortSignal.timeout(18000)});if(!image.ok)return null;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)return null;await writeFile(output,bytes);used.add(photo.url);return{title:photo.alt||query,source:photo.url,artist:photo.photographer||"Pexels contributor",license:"Pexels License"}}catch{return null}
@@ -837,7 +845,7 @@ export async function POST(request: NextRequest) {
             relatedVideosUsed < maxRelatedVideos &&
             storyIndex % 3 === 1;
         if (tryVideo) {
-          let result = await pexelsVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait)??await commonsVideo(clipSearch,join(work, `related-video-${relatedVideosUsed}`),randomOffset + i);
+          let result = await pixabayVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait)??await pexelsVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait)??await commonsVideo(clipSearch,join(work, `related-video-${relatedVideosUsed}`),randomOffset + i);
           if (result) {
             path = result.path;
             credits.push(result.credit);
@@ -850,13 +858,13 @@ export async function POST(request: NextRequest) {
           imageDownloads < (process.env.VERCEL ? 8 : 20)
         ) {
           const candidate = join(work, `media-${imageDownloads}.jpg`);
-          let credit = (await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await commonsImage(
+          let credit = (await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await commonsImage(
               imageSearch,
               candidate,
               randomOffset + i,
               usedImages,
             )) ?? (await openverseImage(imageSearch,candidate,randomOffset+i,usedImages));
-          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await pexelsImage(sceneImageQuery,candidate,randomOffset+i+17,portrait,usedImages))??(await commonsImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages))??(await openverseImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages));
+          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await pixabayImage(sceneImageQuery,candidate,randomOffset+i+17,portrait,usedImages))??(await pexelsImage(sceneImageQuery,candidate,randomOffset+i+17,portrait,usedImages))??(await commonsImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages))??(await openverseImage(sceneImageQuery,candidate,randomOffset+i+17,usedImages));
           imageDownloads++;
           if (credit) {
             path = candidate;
