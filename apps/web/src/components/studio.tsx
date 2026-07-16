@@ -113,10 +113,8 @@ export function Studio() {
   const [backgroundMusicEnabled,setBackgroundMusicEnabled]=useState(true);
   const [backgroundMusicVolume,setBackgroundMusicVolume]=useState(12);
   const [uploadingVoice, setUploadingVoice] = useState(false);
-  const [recordingVoice,setRecordingVoice]=useState(false);
-  const recorderRef=useRef<MediaRecorder|null>(null);
-  const recordingStreamRef=useRef<MediaStream|null>(null);
-  const recordingChunksRef=useRef<Blob[]>([]);
+  const [dictatingContent,setDictatingContent]=useState(false);
+  const dictationRef=useRef<any>(null);
   const [showCaptions, setShowCaptions] = useState(true);
   const [captionPosition, setCaptionPosition] = useState<"top" | "bottom">(
     "bottom",
@@ -365,16 +363,16 @@ export function Studio() {
     if(preferred)utterance.voice=preferred;
     window.speechSynthesis.speak(utterance);
   }
-  async function toggleVoiceRecording(){
-    if(recordingVoice){recorderRef.current?.stop();return}
+  function toggleContentDictation(){
+    if(dictatingContent){dictationRef.current?.stop();return}
+    const Recognition=(window as any).SpeechRecognition||(window as any).webkitSpeechRecognition;
+    if(!Recognition){setRenderError("Voice-to-content recording requires Chrome or Edge.");return}
     setRenderError("");
-    try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}}),mimeType=MediaRecorder.isTypeSupported("audio/webm;codecs=opus")?"audio/webm;codecs=opus":"audio/webm",recorder=new MediaRecorder(stream,{mimeType});
-      recordingStreamRef.current=stream;recordingChunksRef.current=[];recorderRef.current=recorder;
-      recorder.ondataavailable=event=>{if(event.data.size)recordingChunksRef.current.push(event.data)};
-      recorder.onstop=async()=>{setRecordingVoice(false);stream.getTracks().forEach(track=>track.stop());recordingStreamRef.current=null;const blob=new Blob(recordingChunksRef.current,{type:mimeType}),file=new File([blob],`recorded-narration-${Date.now()}.webm`,{type:mimeType});await uploadVoice(file)};
-      recorder.start();setRecordingVoice(true);
-    }catch(error){setRenderError(error instanceof Error?`Microphone unavailable: ${error.message}`:"Microphone access was not allowed.")}
+    const recognition=new Recognition(),startingText=script.trim();let committed="";
+    recognition.lang=scriptLanguage==="te"?"te-IN":"en-IN";recognition.continuous=true;recognition.interimResults=true;
+    recognition.onresult=(event:any)=>{let interim="";for(let index=event.resultIndex;index<event.results.length;index++){const value=event.results[index][0].transcript.trim();if(event.results[index].isFinal)committed+=`${committed?" ":""}${value}`;else interim+=`${interim?" ":""}${value}`}setScript([startingText,committed,interim].filter(Boolean).join(" "));setAiGenerated(false)};
+    recognition.onerror=(event:any)=>setRenderError(`Voice recording stopped: ${event.error||"microphone error"}`);
+    recognition.onend=()=>setDictatingContent(false);recognition.start();dictationRef.current=recognition;setDictatingContent(true);
   }
   async function uploadMusic(file?:File){if(!file)return;setRenderError("");try{const form=new FormData();form.append("voice",file);const response=await fetch("/api/voice-upload",{method:"POST",body:form}),data=await response.json();if(!response.ok)throw new Error(data.error||"Music upload failed");setBackgroundMusic(data);setBackgroundMusicPreset("")}catch(error){setRenderError(error instanceof Error?error.message:"Music upload failed")}}
   async function uploadMedia(files?: FileList) {
@@ -855,6 +853,7 @@ export function Studio() {
                       <Sparkle />
                       {generatingScript ? "Generating…" : "AI Generate Content"}
                     </button>
+                    <button className={dictatingContent?"dictating":""} onClick={toggleContentDictation}><Microphone weight="fill"/>{dictatingContent?"Stop recording":"Record content"}</button>
                   </div>
                   <div className="admin-fields title-field">
                     <div>
@@ -983,7 +982,6 @@ export function Studio() {
                       onChange={(e) => uploadVoice(e.target.files?.[0])}
                     />
                   </label>
-                  <div className={`voice-recorder ${recordingVoice?"recording":""}`}><button onClick={toggleVoiceRecording} disabled={uploadingVoice}><Microphone weight="fill"/><span>{recordingVoice?"Stop and use recording":"Record narration now"}</span></button><small>{recordingVoice?"Recording… read your script, then press stop.":"Uses your microphone and selects the recording automatically."}</small></div>
                   <label className="range-label">
                     <span>Speaking speed</span>
                     <b>{speed} words/min</b>

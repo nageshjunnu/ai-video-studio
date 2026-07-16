@@ -57,3 +57,4 @@
 @media(max-width:700px){.voice-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.voice-recorder{align-items:flex-start;flex-direction:column}}
 .visual-choice-content{max-height:none!important;overflow:visible!important;overscroll-behavior:auto!important}
 .visual-template-grid{max-height:none!important;overflow:visible!important}
+.script-generator button.dictating{background:#df3f5b;animation:recordPulse 1.2s infinite}
