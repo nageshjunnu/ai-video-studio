@@ -9,6 +9,7 @@ async function bootstrap(){
   credentials:true,
   origin(origin:string|undefined,callback:(error:Error|null,allow?:boolean)=>void){
    if(!origin||configured.includes(origin.replace(/\/$/,'')))return callback(null,true);
+   if(/^https:\/\/ai-video-studio(?:-api)?-[a-z0-9-]+-nageshjunnus-projects\.vercel\.app$/.test(origin))return callback(null,true);
    if(process.env.NODE_ENV!=='production'&&/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin))return callback(null,true);
    callback(new Error(`CORS origin not allowed: ${origin}`),false);
   },
