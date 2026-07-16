@@ -350,7 +350,7 @@ type MediaCredit = {
 function providerQueries(query:string){
   const ascii=query.replace(/[^a-zA-Z0-9 ]/g," ").replace(/\s+/g," ").trim(),words=ascii.split(" ").filter(word=>word.length>2&&!/^(the|and|from|with|story|video|image|introduction|history|officially|republic|country|world)$/i.test(word));
   const focused=words.slice(0,5).join(" "),ai=/\b(ai|artificial intelligence|machine learning|robot|technology|digital)\b/i.test(ascii),india=/\b(india|indian|bharat|ujjain|temple|king|royal|heritage|ancient)\b/i.test(ascii);
-  return Array.from(new Set([
+  const queries=Array.from(new Set([
     focused,
     focused ? `cinematic ${focused}` : null,
     focused ? `documentary ${focused}` : null,
@@ -358,27 +358,28 @@ function providerQueries(query:string){
     india ? "Indian heritage temple royal culture" : null,
     ascii,
   ].filter(Boolean))) as string[];
+  return process.env.VERCEL ? queries.slice(0,3) : queries;
 }
-async function visualPrompt(title:string,scene:string,kind:"image"|"video",fallback:string){
+async function visualPrompts(title:string,scene:string,fallbackImage:string,fallbackVideo:string){
   const key=process.env.GEMINI_API_KEY;
-  if(!key)return fallback;
+  if(!key)return {image:fallbackImage,video:fallbackVideo};
   try{
-    const prompt=`Create one short English search query for finding a ${kind==="video"?"stock video clip":"high quality photo"} that visually matches this video scene. Avoid abstract words. Use concrete places, people, objects, action, culture, era, environment. Return JSON only: {"query":"..."}\nTitle: ${title || "Untitled"}\nScene: ${scene.slice(0,900)}`;
-    const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(key)}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:.35,maxOutputTokens:90,responseMimeType:"application/json"}}),signal:AbortSignal.timeout(process.env.VERCEL?8000:15000)});
-    if(!response.ok)return fallback;
+    const prompt=`Create short English media search queries for this video scene. Use concrete visual keywords only: places, people, objects, action, era, culture, environment. Return JSON only: {"image":"...","video":"..."}\nTitle: ${title || "Untitled"}\nScene: ${scene.slice(0,700)}`;
+    const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(key)}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:.25,maxOutputTokens:120,responseMimeType:"application/json"}}),signal:AbortSignal.timeout(process.env.VERCEL?3500:8000)});
+    if(!response.ok)return {image:fallbackImage,video:fallbackVideo};
     const data=await response.json(),text=data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if(!text)return fallback;
-    const parsed=JSON.parse(text),query=String(parsed?.query??"").replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim();
-    return query.length>5?query.slice(0,120):fallback;
-  }catch{return fallback}
+    if(!text)return {image:fallbackImage,video:fallbackVideo};
+    const parsed=JSON.parse(text),clean=(value:any,fallback:string)=>{const query=String(value??"").replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim();return query.length>5?query.slice(0,120):fallback};
+    return {image:clean(parsed?.image,fallbackImage),video:clean(parsed?.video,fallbackVideo)};
+  }catch{return {image:fallbackImage,video:fallbackVideo}}
 }
 async function pixabayImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
   const key=process.env.PIXABAY_API_KEY;if(!key)return null;
-  for(const search of providerQueries(query)){try{const params=new URLSearchParams({key,q:search.slice(0,100),image_type:"photo",orientation:portrait?"vertical":"horizontal",min_width:portrait?"720":"1280",min_height:portrait?"1280":"720",safesearch:"true",order:"popular",per_page:"50"}),response=await fetch(`https://pixabay.com/api/?${params}`,{signal:AbortSignal.timeout(10000)});if(!response.ok)continue;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>(hit.largeImageURL||hit.webformatURL)&&!used.has(hit.pageURL)),hit=hits[seed%Math.max(1,hits.length)];if(!hit)continue;const image=await fetch(hit.fullHDURL||hit.largeImageURL||hit.webformatURL,{signal:AbortSignal.timeout(18000)});if(!image.ok)continue;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)continue;await writeFile(output,bytes);used.add(hit.pageURL);return{title:hit.tags||search,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}catch{continue}}return null;
+  for(const search of providerQueries(query)){try{const params=new URLSearchParams({key,q:search.slice(0,100),image_type:"photo",orientation:portrait?"vertical":"horizontal",min_width:portrait?"720":"1280",min_height:portrait?"1280":"720",safesearch:"true",order:"popular",per_page:"30"}),response=await fetch(`https://pixabay.com/api/?${params}`,{signal:AbortSignal.timeout(process.env.VERCEL?4500:10000)});if(!response.ok)continue;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>(hit.largeImageURL||hit.webformatURL)&&!used.has(hit.pageURL)),hit=hits[seed%Math.max(1,hits.length)];if(!hit)continue;const image=await fetch(hit.fullHDURL||hit.largeImageURL||hit.webformatURL,{signal:AbortSignal.timeout(process.env.VERCEL?6500:18000)});if(!image.ok)continue;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)continue;await writeFile(output,bytes);used.add(hit.pageURL);return{title:hit.tags||search,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}catch{continue}}return null;
 }
 async function pixabayVideo(query:string,outputBase:string,seed:number,portrait:boolean):Promise<{path:string;credit:MediaCredit}|null>{
   const key=process.env.PIXABAY_API_KEY;if(!key)return null;
-  for(const search of providerQueries(query)){try{const params=new URLSearchParams({key,q:search.slice(0,100),video_type:"film",orientation:portrait?"vertical":"horizontal",safesearch:"true",order:"popular",per_page:"40"}),response=await fetch(`https://pixabay.com/api/videos/?${params}`,{signal:AbortSignal.timeout(10000)});if(!response.ok)continue;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>hit.videos?.medium?.url||hit.videos?.large?.url||hit.videos?.small?.url),hit=hits[seed%Math.max(1,hits.length)];if(!hit)continue;const choices=[hit.videos?.large,hit.videos?.medium,hit.videos?.small].filter((file:any)=>file?.url&&Number(file.width||0)>=640&&Number(file.size||0)<=45_000_000),selected=choices[0];if(!selected)continue;const video=await fetch(selected.url,{signal:AbortSignal.timeout(25000)});if(!video.ok)continue;const bytes=Buffer.from(await video.arrayBuffer());if(!bytes.length||bytes.length>45_000_000)continue;const path=`${outputBase}.mp4`;await writeFile(path,bytes);return{path,credit:{title:hit.tags||`${search} video`,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}}catch{continue}}return null;
+  for(const search of providerQueries(query)){try{const maxSize=process.env.VERCEL?18_000_000:45_000_000,params=new URLSearchParams({key,q:search.slice(0,100),video_type:"film",orientation:portrait?"vertical":"horizontal",safesearch:"true",order:"popular",per_page:"25"}),response=await fetch(`https://pixabay.com/api/videos/?${params}`,{signal:AbortSignal.timeout(process.env.VERCEL?4500:10000)});if(!response.ok)continue;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>hit.videos?.medium?.url||hit.videos?.large?.url||hit.videos?.small?.url),hit=hits[seed%Math.max(1,hits.length)];if(!hit)continue;const choices=[hit.videos?.medium,hit.videos?.small,hit.videos?.large].filter((file:any)=>file?.url&&Number(file.width||0)>=640&&Number(file.size||0)<=maxSize),selected=choices[0];if(!selected)continue;const video=await fetch(selected.url,{signal:AbortSignal.timeout(process.env.VERCEL?9000:25000)});if(!video.ok)continue;const bytes=Buffer.from(await video.arrayBuffer());if(!bytes.length||bytes.length>maxSize)continue;const path=`${outputBase}.mp4`;await writeFile(path,bytes);return{path,credit:{title:hit.tags||`${search} video`,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}}catch{continue}}return null;
 }
 async function pexelsImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
   const key=process.env.PEXELS_API_KEY;if(!key)return null;
@@ -921,19 +922,32 @@ export async function POST(request: NextRequest) {
       imageDownloads = 0;
     const randomOffset = Math.floor(Math.random() * 1000),
       globalKeywords = scriptKeywords(title, script),
-      mediaDeadline = Date.now() + (process.env.VERCEL ? 75_000 : 240_000);
+      promptLimit = process.env.VERCEL ? 6 : 16,
+      mediaDeadline = Date.now() + (process.env.VERCEL ? 35_000 : 240_000);
+    const promptPlans = await Promise.all(
+      scenes.slice(0, Math.min(scenes.length, promptLimit)).map(async (scene, i) => {
+        const sceneImageQuery = mediaQuery(scene, i),
+          sceneVideoQuery = videoQuery(scene, title, i),
+          imageContext = titleContextQuery(title, i, "image"),
+          videoContext = titleContextQuery(title, i, "video"),
+          keywordContext = globalKeywords[i % Math.max(1, globalKeywords.length)] ?? "",
+          fallbackImage = `${keywordContext} ${imageContext || title.trim()} ${sceneImageQuery}`.trim(),
+          fallbackVideo = `${keywordContext} ${videoContext || title.trim()} ${sceneVideoQuery}`.trim();
+        const prompts = await visualPrompts(title, scene, fallbackImage, fallbackVideo);
+        return { sceneImageQuery, sceneVideoQuery, keywordContext, imageSearch: prompts.image, clipSearch: prompts.video };
+      }),
+    );
     for (let i = 0; i < scenes.length; i++) {
       let path = body.templateOnly && uploaded.length ? uploaded[i % uploaded.length] : i < uploaded.length ? uploaded[i] : undefined;
       if (!path) {
         path = join(work, `scene-${i}.ppm`);
         const fallback = path,
-          sceneImageQuery = mediaQuery(scenes[i], i),
-          sceneVideoQuery = videoQuery(scenes[i], title, i),
-          imageContext=titleContextQuery(title,i,"image"),
-          videoContext=titleContextQuery(title,i,"video"),
-          keywordContext = globalKeywords[i % Math.max(1, globalKeywords.length)] ?? "",
-          imageSearch = await visualPrompt(title,scenes[i],"image",`${keywordContext} ${imageContext||title.trim()} ${sceneImageQuery}`.trim()),
-          clipSearch = await visualPrompt(title,scenes[i],"video",`${keywordContext} ${videoContext||title.trim()} ${sceneVideoQuery}`.trim()),
+          plan = promptPlans[i],
+          sceneImageQuery = plan?.sceneImageQuery ?? mediaQuery(scenes[i], i),
+          sceneVideoQuery = plan?.sceneVideoQuery ?? videoQuery(scenes[i], title, i),
+          keywordContext = plan?.keywordContext ?? (globalKeywords[i % Math.max(1, globalKeywords.length)] ?? ""),
+          imageSearch = plan?.imageSearch ?? `${keywordContext} ${title.trim()} ${sceneImageQuery}`.trim(),
+          clipSearch = plan?.clipSearch ?? `${keywordContext} ${title.trim()} ${sceneVideoQuery}`.trim(),
           storyIndex = i - (hasTitle ? 1 : 0),
           maxRelatedVideos=process.env.VERCEL?4:Math.min(10,Math.ceil(storyScenes.length/2)),
           middleStart=Math.max(0,Math.floor(storyScenes.length*.25)),
@@ -964,7 +978,7 @@ export async function POST(request: NextRequest) {
           let credit = (await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages));
           if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages))??(await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages));
           if(!credit&&Date.now()<mediaDeadline)credit=await openverseImage(imageSearch,candidate,randomOffset+i+31,usedImages);
-          if(!credit&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
+          if(!credit&&!process.env.VERCEL&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
           imageDownloads++;
           if (credit) {
             path = candidate;
