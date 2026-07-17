@@ -128,7 +128,7 @@ export function Studio() {
   >([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [useRelatedVideos, setUseRelatedVideos] = useState(false);
-  const [providerOverrides,setProviderOverrides]=useState({pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:true,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true});
+  const [providerOverrides,setProviderOverrides]=useState({pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:false,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true});
   const [videoTitle, setVideoTitle] = useState("");
   const [showTitleScreen, setShowTitleScreen] = useState(true);
   const [videoCountry, setVideoCountry] = useState("GLOBAL");

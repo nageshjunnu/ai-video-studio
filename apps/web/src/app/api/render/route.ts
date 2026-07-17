@@ -601,7 +601,7 @@ async function huggingFaceImage(query:string,scene:string,output:string,seed:num
     const subject=query.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,160)||"cinematic story scene";
     const context=scene.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,260);
     const prompt=`${subject}. Cinematic documentary frame, realistic high quality, rich detail, full screen composition, natural light. Scene context: ${context}. No text, no watermark, no logo.`;
-    const response=await fetch(`https://api-inference.huggingface.co/models/${model}`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json",accept:"image/png"},body:JSON.stringify({inputs:prompt,parameters:{negative_prompt:"text, watermark, logo, blurry, low quality, distorted",width:portrait?768:1024,height:portrait?1024:576,num_inference_steps:24,guidance_scale:7.5,seed}}),signal:AbortSignal.timeout(process.env.VERCEL?35_000:60_000)});
+    const response=await fetch(`https://api-inference.huggingface.co/models/${model}`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json",accept:"image/png"},body:JSON.stringify({inputs:prompt,parameters:{negative_prompt:"text, watermark, logo, blurry, low quality, distorted",width:portrait?768:1024,height:portrait?1024:576,num_inference_steps:18,guidance_scale:7,seed},options:{wait_for_model:false}}),signal:AbortSignal.timeout(process.env.VERCEL?9_000:15_000)});
     if(!response.ok)return null;
     const type=response.headers.get("content-type")||"";
     if(!type.startsWith("image/"))return null;
@@ -1137,7 +1137,7 @@ export async function POST(request: NextRequest) {
           let credit = (providers.pixabayImages?await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null);
           if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(providers.pixabayImages?await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null);
           if(!credit&&providers.openverseImages&&Date.now()<mediaDeadline)credit=await openverseImage(imageSearch,candidate,randomOffset+i+31,usedImages);
-          if(!credit&&providers.huggingFaceImages&&hasRealPaidAccess&&Date.now()<mediaDeadline)credit=await huggingFaceImage(imageSearch,scenes[i],candidate,randomOffset+i+43,portrait);
+          if(!credit&&!shortScript&&providers.huggingFaceImages&&hasRealPaidAccess&&Date.now()<mediaDeadline)credit=await huggingFaceImage(imageSearch,scenes[i],candidate,randomOffset+i+43,portrait);
           if(!credit&&!process.env.VERCEL&&imageDownloads<3&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
           imageDownloads++;
           if (credit) {
