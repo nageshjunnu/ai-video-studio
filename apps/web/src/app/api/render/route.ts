@@ -85,6 +85,64 @@ function narrationChunks(text: string, limit = 650) {
   if (current) chunks.push(current);
   return chunks;
 }
+function geminiVoiceName(voice: string, telugu: boolean) {
+  if (voice === "Venkatesh") return "Puck";
+  if (voice.startsWith("Child")) return "Kore";
+  return telugu ? "Kore" : "Kore";
+}
+async function geminiTts(text: string, voice: string, telugu: boolean, work: string) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  const chunks = narrationChunks(text, 900),
+    files: string[] = [],
+    voiceName = geminiVoiceName(voice, telugu);
+  for (let index = 0; index < chunks.length; index++) {
+    const pcm = join(work, `gemini-tts-${String(index).padStart(3, "0")}.pcm`),
+      wav = join(work, `gemini-tts-${String(index).padStart(3, "0")}.wav`),
+      prompt = telugu
+        ? `Read the following Telugu narration naturally and clearly. Speak only the narration text.\n\n${chunks[index]}`
+        : `Read the following narration naturally and clearly. Speak only the narration text.\n\n${chunks[index]}`;
+    let audio = "";
+    for (let attempt = 0; attempt < 2 && !audio; attempt++) {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-goog-api-key": key,
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName },
+                },
+              },
+            },
+          }),
+          signal: AbortSignal.timeout(process.env.VERCEL ? 25_000 : 45_000),
+        },
+      );
+      if (!response.ok) continue;
+      const data = await response.json();
+      audio = data?.candidates?.[0]?.content?.parts?.find((part: any) => part?.inlineData?.data)?.inlineData?.data ?? "";
+    }
+    if (!audio) throw new Error("Gemini TTS did not return audio.");
+    await writeFile(pcm, Buffer.from(audio, "base64"));
+    await run(ffmpeg.path, ["-f", "s16le", "-ar", "24000", "-ac", "1", "-i", pcm, "-ac", "1", "-ar", "24000", "-y", wav]);
+    files.push(wav);
+  }
+  if (files.length === 1) return files[0];
+  const output = join(work, "gemini-narration.wav"),
+    args = files.flatMap((file) => ["-i", file]),
+    inputs = files.map((_, index) => `[${index}:a]`).join("");
+  args.push("-filter_complex", `${inputs}concat=n=${files.length}:v=0:a=1[a]`, "-map", "[a]", "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le", "-y", output);
+  await run(ffmpeg.path, args);
+  return output;
+}
 function scenesFrom(script: string) {
   const blocks = script
     .split(/\n+/)
@@ -864,7 +922,20 @@ export async function POST(request: NextRequest) {
       }
     } else if (telugu) {
       narrationFailure = !existsSync(piper) ? `Piper executable not found at ${piper}` : `Piper voice model not found at ${model}`;
-    } else if (!telugu && process.platform === "darwin") {
+    }
+    if (!hasAudio && process.env.GEMINI_API_KEY) {
+      try {
+        const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
+        if (geminiNarration) {
+          narration = geminiNarration;
+          hasAudio = true;
+          narrationFailure = "";
+        }
+      } catch (error) {
+        narrationFailure = error instanceof Error ? error.message : "Gemini TTS failed";
+      }
+    }
+    if (!hasAudio && !telugu && process.platform === "darwin") {
       try {
         await run("/usr/bin/say", [
           "-v",
