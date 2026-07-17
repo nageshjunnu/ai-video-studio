@@ -144,6 +144,8 @@ export function Studio() {
     setRenderError("");
     setStep(step+1);
   }
+  const contentTag =
+    format === "9:16" ? "Reel" : format === "1:1" ? "Square video" : "Video";
   const navItems = user?.role === "ADMIN"
     ? [...nav, { n: "Tool access", i: Gear }, { n: "User videos", i: Play }, { n: "Admin videos", i: List }]
     : nav.filter(item => item.n !== "Team");
@@ -214,6 +216,7 @@ export function Studio() {
     scenes: number;
     duration: number;
     voice: string;
+    storage?: string;
     media?: { title: string; source: string; license: string }[];
   } | null>(null);
   const [renderError, setRenderError] = useState("");
@@ -1143,6 +1146,10 @@ export function Studio() {
                   </p>
                   {video ? (
                     <div className="result-video">
+                      <div className="saved-video-tag">
+                        <strong>{contentTag}</strong>
+                        <span>Saved in {video.storage || "local renders"}</span>
+                      </div>
                       <video src={video.url} controls playsInline />
                       <a href={video.url} download>
                         Download MP4

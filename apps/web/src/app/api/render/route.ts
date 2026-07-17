@@ -1259,6 +1259,7 @@ export async function POST(request: NextRequest) {
     await run(ffmpeg.path, args);
     const ffmpegMs = Date.now() - ffmpegStartedAt;
     let videoUrl = "";
+    let storage: "Vercel Blob" | "Cloudinary" | "Local renders" = "Local renders";
     if (useBlob) {
       try {
         videoUrl = (
@@ -1268,15 +1269,20 @@ export async function POST(request: NextRequest) {
             addRandomSuffix: false,
           })
         ).url;
+        storage = "Vercel Blob";
       } catch (error) {
         if (!useCloudinary) throw error;
       }
     }
-    if (!videoUrl && useCloudinary) videoUrl = await uploadCloudinaryVideo(output, id);
+    if (!videoUrl && useCloudinary) {
+      videoUrl = await uploadCloudinaryVideo(output, id);
+      storage = "Cloudinary";
+    }
     if (!videoUrl) videoUrl = `/renders/${id}.mp4`;
     return NextResponse.json({
       id,
       url: videoUrl,
+      storage,
       scenes: scenes.length,
       duration: Math.round(sceneDurations.reduce((a, b) => a + b, 0)),
       voice: hasAudio
