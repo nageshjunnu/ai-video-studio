@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { existsSync } from "node:fs";
@@ -49,6 +50,52 @@ function run(command: string, args: string[]) {
         : reject(new Error(stderr.slice(-1200) || `${command} exited ${code}`)),
     );
   });
+}
+function cloudinaryConfig() {
+  const url = process.env.CLOUDINARY_URL;
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      return {
+        cloudName: parsed.hostname,
+        apiKey: decodeURIComponent(parsed.username),
+        apiSecret: decodeURIComponent(parsed.password),
+      };
+    } catch {}
+  }
+  return {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME ?? "",
+    apiKey: process.env.CLOUDINARY_API_KEY ?? "",
+    apiSecret: process.env.CLOUDINARY_API_SECRET ?? "",
+  };
+}
+function hasCloudinaryStorage() {
+  const config = cloudinaryConfig();
+  return Boolean(config.cloudName && config.apiKey && config.apiSecret);
+}
+async function uploadCloudinaryVideo(file:string,id:string) {
+  const config = cloudinaryConfig();
+  if (!config.cloudName || !config.apiKey || !config.apiSecret) throw new Error("Cloudinary storage is not configured.");
+  const timestamp = Math.floor(Date.now()/1000),
+    publicId = `renders/${id}`,
+    params = `folder=drishyana&public_id=${publicId}&resource_type=video&timestamp=${timestamp}${config.apiSecret}`,
+    signature = createHash("sha1").update(params).digest("hex"),
+    form = new FormData();
+  form.set("file", new Blob([await readFile(file)], { type: "video/mp4" }));
+  form.set("api_key", config.apiKey);
+  form.set("timestamp", String(timestamp));
+  form.set("signature", signature);
+  form.set("folder", "drishyana");
+  form.set("public_id", publicId);
+  form.set("resource_type", "video");
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${config.cloudName}/video/upload`, {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!response.ok) throw new Error(`Cloudinary upload failed: ${await response.text()}`);
+  const data = await response.json();
+  return data.secure_url || data.url;
 }
 function runInput(command: string, args: string[], input: string) {
   return new Promise<void>((resolve, reject) => {
@@ -888,11 +935,12 @@ export async function POST(request: NextRequest) {
     useBlob = Boolean(
       process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN,
     ),
-    outputDir = useBlob ? work : join(process.cwd(), "public", "renders");
+    useCloudinary = hasCloudinaryStorage(),
+    outputDir = useBlob || useCloudinary ? work : join(process.cwd(), "public", "renders");
   try {
-    if (process.env.VERCEL && !useBlob)
+    if (process.env.VERCEL && !useBlob && !useCloudinary)
       throw new Error(
-        "Vercel Blob is not connected. Connect the Blob store to this project and redeploy.",
+        "Storage is not connected. Connect Vercel Blob or configure Cloudinary and redeploy.",
       );
     await mkdir(work, { recursive: true });
     await mkdir(outputDir, { recursive: true });
@@ -1210,15 +1258,22 @@ export async function POST(request: NextRequest) {
     const ffmpegStartedAt = Date.now();
     await run(ffmpeg.path, args);
     const ffmpegMs = Date.now() - ffmpegStartedAt;
-    const videoUrl = useBlob
-      ? (
+    let videoUrl = "";
+    if (useBlob) {
+      try {
+        videoUrl = (
           await put(`renders/${id}.mp4`, await readFile(output), {
             access: "public",
             contentType: "video/mp4",
             addRandomSuffix: false,
           })
-        ).url
-      : `/renders/${id}.mp4`;
+        ).url;
+      } catch (error) {
+        if (!useCloudinary) throw error;
+      }
+    }
+    if (!videoUrl && useCloudinary) videoUrl = await uploadCloudinaryVideo(output, id);
+    if (!videoUrl) videoUrl = `/renders/${id}.mp4`;
     return NextResponse.json({
       id,
       url: videoUrl,
