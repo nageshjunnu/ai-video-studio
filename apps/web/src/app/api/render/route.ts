@@ -828,10 +828,23 @@ export async function POST(request: NextRequest) {
       { error: "Please enter at least 10 characters." },
       { status: 400 },
     );
+  const authorization = request.headers.get("authorization") ?? "";
+  let account: any = null;
+  if (authorization) {
+    try {
+      const response = await fetch(`${serverApiUrl()}/auth/me`, {
+        headers: { authorization },
+        cache: "no-store",
+      });
+      account = response.ok ? await response.json() : null;
+    } catch {
+      account = null;
+    }
+  }
+  const hasRealPaidAccess = account?.role === "ADMIN" || account?.hasPaid === true;
   let showBranding=true;
-  if(body.showBranding===false){try{const authorization=request.headers.get("authorization")??"",response=await fetch(`${serverApiUrl()}/auth/me`,{headers:{authorization},cache:"no-store"}),account=response.ok?await response.json():null;showBranding=!(account?.role==="ADMIN"||account?.hasPaid===true)}catch{showBranding=true}}
+  if(body.showBranding===false)showBranding=!hasRealPaidAccess;
   if (body.useRelatedVideos) {
-    const authorization = request.headers.get("authorization");
     if (!authorization)
       return NextResponse.json(
         {
@@ -839,13 +852,7 @@ export async function POST(request: NextRequest) {
         },
         { status: 403 },
       );
-    try {
-      const entitlement = await fetch(`${serverApiUrl()}/auth/me`, {
-          headers: { authorization },
-          cache: "no-store",
-        }),
-        account = await entitlement.json();
-      if (!entitlement.ok || (!account.hasPaid && account.role !== "ADMIN"))
+      if (!hasRealPaidAccess)
         return NextResponse.json(
           {
             error:
@@ -853,15 +860,6 @@ export async function POST(request: NextRequest) {
           },
           { status: 403 },
         );
-    } catch {
-      return NextResponse.json(
-        {
-          error:
-            "Could not verify the premium media entitlement. Please ensure the API is running.",
-        },
-        { status: 503 },
-      );
-    }
   }
   const id = crypto.randomUUID(),
     startedAt = Date.now(),
@@ -923,7 +921,7 @@ export async function POST(request: NextRequest) {
     } else if (telugu) {
       narrationFailure = !existsSync(piper) ? `Piper executable not found at ${piper}` : `Piper voice model not found at ${model}`;
     }
-    if (!hasAudio && process.env.GEMINI_API_KEY) {
+    if (!hasAudio && hasRealPaidAccess && process.env.GEMINI_API_KEY) {
       try {
         const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
         if (geminiNarration) {
@@ -1010,7 +1008,7 @@ export async function POST(request: NextRequest) {
       imageDownloads = 0;
     const randomOffset = Math.floor(Math.random() * 1000),
       globalKeywords = scriptKeywords(title, script),
-      promptLimit = shortScript ? 0 : process.env.VERCEL ? 4 : 8,
+      promptLimit = !hasRealPaidAccess || shortScript ? 0 : process.env.VERCEL ? 4 : 8,
       mediaDeadline = Date.now() + (shortScript ? process.env.VERCEL ? 10_000 : 14_000 : process.env.VERCEL ? 25_000 : 75_000);
     const promptPlans = await Promise.all(
       scenes.slice(0, Math.min(scenes.length, promptLimit)).map(async (scene, i) => {
