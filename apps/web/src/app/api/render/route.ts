@@ -546,6 +546,23 @@ async function openverseImage(query:string,output:string,seed=0,used=new Set<str
  let image=await fetch(selected.url||selected.thumbnail,{headers:{"user-agent":"DrishyanaAI/0.3"},signal:AbortSignal.timeout(process.env.VERCEL?10000:20000)});if(!image.ok)image=await fetch(selected.thumbnail,{headers:{"user-agent":"DrishyanaAI/0.3"},signal:AbortSignal.timeout(process.env.VERCEL?7000:15000)});if(!image.ok)return null;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>20_000_000)return null;
  await writeFile(output,bytes);used.add(selected.foreign_landing_url||selected.url);return{title:selected.title||query,source:selected.foreign_landing_url||selected.url,artist:selected.creator||"Openverse contributor",license:selected.license?.toUpperCase()||"Open license"}
  }catch{return null}}
+async function huggingFaceImage(query:string,scene:string,output:string,seed:number,portrait:boolean):Promise<MediaCredit|null>{
+  const key=process.env.HF_API_KEY||process.env.HUGGINGFACE_API_KEY;if(!key)return null;
+  const model=process.env.HF_IMAGE_MODEL||"stabilityai/stable-diffusion-xl-base-1.0";
+  try{
+    const subject=query.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,160)||"cinematic story scene";
+    const context=scene.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,260);
+    const prompt=`${subject}. Cinematic documentary frame, realistic high quality, rich detail, full screen composition, natural light. Scene context: ${context}. No text, no watermark, no logo.`;
+    const response=await fetch(`https://api-inference.huggingface.co/models/${model}`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json",accept:"image/png"},body:JSON.stringify({inputs:prompt,parameters:{negative_prompt:"text, watermark, logo, blurry, low quality, distorted",width:portrait?768:1024,height:portrait?1024:576,num_inference_steps:24,guidance_scale:7.5,seed}}),signal:AbortSignal.timeout(process.env.VERCEL?35_000:60_000)});
+    if(!response.ok)return null;
+    const type=response.headers.get("content-type")||"";
+    if(!type.startsWith("image/"))return null;
+    const bytes=Buffer.from(await response.arrayBuffer());
+    if(!bytes.length||bytes.length>24_000_000)return null;
+    await writeFile(output,bytes);
+    return{title:subject,source:`Hugging Face image generation (${model})`,artist:"Generated image",license:"Generated visual"}
+  }catch{return null}
+}
 async function generatedSceneImage(query:string,scene:string,output:string,seed:number,portrait:boolean):Promise<MediaCredit|null>{
   try{
     const subject=query.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,140)||"cinematic story scene";
@@ -1067,6 +1084,7 @@ export async function POST(request: NextRequest) {
           let credit = (await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages));
           if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages))??(await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages));
           if(!credit&&Date.now()<mediaDeadline)credit=await openverseImage(imageSearch,candidate,randomOffset+i+31,usedImages);
+          if(!credit&&hasRealPaidAccess&&Date.now()<mediaDeadline)credit=await huggingFaceImage(imageSearch,scenes[i],candidate,randomOffset+i+43,portrait);
           if(!credit&&!process.env.VERCEL&&imageDownloads<3&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
           imageDownloads++;
           if (credit) {
