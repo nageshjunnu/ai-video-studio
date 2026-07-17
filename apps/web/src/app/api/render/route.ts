@@ -907,7 +907,7 @@ export async function POST(request: NextRequest) {
     }
   }
   const hasRealPaidAccess = account?.role === "ADMIN" || account?.hasPaid === true;
-  let providers={pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:true,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true};
+  let providers={pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:false,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true};
   if(authorization){try{const response=await fetch(`${serverApiUrl()}/creator-tools/access`,{headers:{authorization},cache:"no-store"}),access=response.ok?await response.json():null;providers={...providers,...(access?.thirdParty??{})}}catch{}}
   if(account?.role==="ADMIN"&&body.providerOverrides)providers={...providers,...body.providerOverrides};
   let showBranding=true;
@@ -1023,10 +1023,12 @@ export async function POST(request: NextRequest) {
       await run(ffmpeg.path,["-i",narration,"-filter:a","aresample=44100,asetrate=51000,aresample=44100,atempo=0.92","-ac","1","-y",childNarration]);
       narration=childNarration;
     }
-    const shortScript = [...script].length <= 450,
+    const scriptLength = [...script].length,
+      quickScript = scriptLength <= 180,
+      shortScript = scriptLength <= 450,
       storyScenes = compactScenes(
         scenesFrom(script),
-        shortScript ? 3 : process.env.VERCEL ? 6 : 18,
+        quickScript ? 1 : shortScript ? 2 : process.env.VERCEL ? 6 : 18,
       ),
       scenes = hasTitle
         ? [title, ...storyScenes]
@@ -1053,10 +1055,12 @@ export async function POST(request: NextRequest) {
     if (body.showEngagementCta !== false) {
       ctaSceneIndexes.add(scenes.length);
       scenes.push("Enjoyed this story?\nSubscribe for more thoughtful videos.");
-      sceneDurations.push(process.env.VERCEL ? 3 : 4);
-      ctaSceneIndexes.add(scenes.length);
-      scenes.push("Share this with someone who loves meaningful stories.");
-      sceneDurations.push(process.env.VERCEL ? 3 : 4);
+      sceneDurations.push(process.env.VERCEL ? 2.4 : 3);
+      if (!quickScript) {
+        ctaSceneIndexes.add(scenes.length);
+        scenes.push("Share this with someone who loves meaningful stories.");
+        sceneDurations.push(process.env.VERCEL ? 3 : 4);
+      }
     }
     const portrait = body.format === "9:16",
       square = body.format === "1:1",
@@ -1078,7 +1082,7 @@ export async function POST(request: NextRequest) {
     const randomOffset = Math.floor(Math.random() * 1000),
       globalKeywords = scriptKeywords(title, script),
       promptLimit = !hasRealPaidAccess || !providers.geminiVisualPrompts || shortScript ? 0 : process.env.VERCEL ? 4 : 8,
-      mediaDeadline = Date.now() + (shortScript ? process.env.VERCEL ? 10_000 : 14_000 : process.env.VERCEL ? 25_000 : 75_000);
+      mediaDeadline = Date.now() + (quickScript ? process.env.VERCEL ? 4_500 : 7_000 : shortScript ? process.env.VERCEL ? 7_000 : 10_000 : process.env.VERCEL ? 25_000 : 75_000);
     const promptPlans = await Promise.all(
       scenes.slice(0, Math.min(scenes.length, promptLimit)).map(async (scene, i) => {
         const sceneImageQuery = mediaQuery(scene, i),
@@ -1131,14 +1135,14 @@ export async function POST(request: NextRequest) {
         if (
           path === fallback &&
           Date.now() < mediaDeadline &&
-          imageDownloads < (process.env.VERCEL ? 6 : Math.min(14, scenes.length))
+          imageDownloads < (quickScript ? 1 : shortScript ? 2 : process.env.VERCEL ? 6 : Math.min(14, scenes.length))
         ) {
           const candidate = join(work, `media-${imageDownloads}.jpg`);
           let credit = (providers.pixabayImages?await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null);
           if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(providers.pixabayImages?await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null);
-          if(!credit&&providers.openverseImages&&Date.now()<mediaDeadline)credit=await openverseImage(imageSearch,candidate,randomOffset+i+31,usedImages);
+          if(!credit&&!shortScript&&providers.openverseImages&&Date.now()<mediaDeadline)credit=await openverseImage(imageSearch,candidate,randomOffset+i+31,usedImages);
           if(!credit&&!shortScript&&providers.huggingFaceImages&&hasRealPaidAccess&&Date.now()<mediaDeadline)credit=await huggingFaceImage(imageSearch,scenes[i],candidate,randomOffset+i+43,portrait);
-          if(!credit&&!process.env.VERCEL&&imageDownloads<3&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
+          if(!credit&&!shortScript&&!process.env.VERCEL&&imageDownloads<3&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
           imageDownloads++;
           if (credit) {
             path = candidate;
