@@ -33,6 +33,7 @@ type RenderInput = {
   showBranding?: boolean;
   showEngagementCta?: boolean;
   imageAnimation?: "none" | "zoom" | "pan" | "fade";
+  providerOverrides?: Partial<Record<"pixabayImages"|"pexelsImages"|"openverseImages"|"huggingFaceImages"|"geminiVisualPrompts"|"geminiTts"|"relatedVideoClips", boolean>>;
 };
 
 function run(command: string, args: string[]) {
@@ -859,6 +860,9 @@ export async function POST(request: NextRequest) {
     }
   }
   const hasRealPaidAccess = account?.role === "ADMIN" || account?.hasPaid === true;
+  let providers={pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:true,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true};
+  if(authorization){try{const response=await fetch(`${serverApiUrl()}/creator-tools/access`,{headers:{authorization},cache:"no-store"}),access=response.ok?await response.json():null;providers={...providers,...(access?.thirdParty??{})}}catch{}}
+  if(account?.role==="ADMIN"&&body.providerOverrides)providers={...providers,...body.providerOverrides};
   let showBranding=true;
   if(body.showBranding===false)showBranding=!hasRealPaidAccess;
   if (body.useRelatedVideos) {
@@ -938,7 +942,7 @@ export async function POST(request: NextRequest) {
     } else if (telugu) {
       narrationFailure = !existsSync(piper) ? `Piper executable not found at ${piper}` : `Piper voice model not found at ${model}`;
     }
-    if (!hasAudio && hasRealPaidAccess && process.env.GEMINI_API_KEY) {
+    if (!hasAudio && hasRealPaidAccess && providers.geminiTts && process.env.GEMINI_API_KEY) {
       try {
         const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
         if (geminiNarration) {
@@ -1025,7 +1029,7 @@ export async function POST(request: NextRequest) {
       imageDownloads = 0;
     const randomOffset = Math.floor(Math.random() * 1000),
       globalKeywords = scriptKeywords(title, script),
-      promptLimit = !hasRealPaidAccess || shortScript ? 0 : process.env.VERCEL ? 4 : 8,
+      promptLimit = !hasRealPaidAccess || !providers.geminiVisualPrompts || shortScript ? 0 : process.env.VERCEL ? 4 : 8,
       mediaDeadline = Date.now() + (shortScript ? process.env.VERCEL ? 10_000 : 14_000 : process.env.VERCEL ? 25_000 : 75_000);
     const promptPlans = await Promise.all(
       scenes.slice(0, Math.min(scenes.length, promptLimit)).map(async (scene, i) => {
@@ -1059,6 +1063,7 @@ export async function POST(request: NextRequest) {
           middleEnd=Math.max(middleStart,Math.ceil(storyScenes.length*.85)),
           tryVideo =
             !!body.useRelatedVideos &&
+            providers.relatedVideoClips &&
             !shortScript &&
             Date.now() < mediaDeadline &&
             storyIndex >= 0 &&
@@ -1067,8 +1072,8 @@ export async function POST(request: NextRequest) {
             relatedVideosUsed < maxRelatedVideos &&
             (storyIndex - middleStart) % 2 === 0;
         if (tryVideo) {
-          let result = await pixabayVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait)??await pexelsVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait);
-          if(!result&&clipSearch!==sceneVideoQuery)result=await pixabayVideo(`${keywordContext} ${sceneVideoQuery}`,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i+21,portrait)??await pexelsVideo(`${keywordContext} ${sceneVideoQuery}`,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i+21,portrait);
+          let result = (providers.pixabayImages?await pixabayVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait):null)??(providers.pexelsImages?await pexelsVideo(clipSearch,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i,portrait):null);
+          if(!result&&clipSearch!==sceneVideoQuery)result=(providers.pixabayImages?await pixabayVideo(`${keywordContext} ${sceneVideoQuery}`,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i+21,portrait):null)??(providers.pexelsImages?await pexelsVideo(`${keywordContext} ${sceneVideoQuery}`,join(work,`related-video-${relatedVideosUsed}`),randomOffset+i+21,portrait):null);
           if (result) {
             path = result.path;
             credits.push(result.credit);
@@ -1081,10 +1086,10 @@ export async function POST(request: NextRequest) {
           imageDownloads < (process.env.VERCEL ? 6 : Math.min(14, scenes.length))
         ) {
           const candidate = join(work, `media-${imageDownloads}.jpg`);
-          let credit = (await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages))??(await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages));
-          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages))??(await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages));
-          if(!credit&&Date.now()<mediaDeadline)credit=await openverseImage(imageSearch,candidate,randomOffset+i+31,usedImages);
-          if(!credit&&hasRealPaidAccess&&Date.now()<mediaDeadline)credit=await huggingFaceImage(imageSearch,scenes[i],candidate,randomOffset+i+43,portrait);
+          let credit = (providers.pixabayImages?await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null);
+          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(providers.pixabayImages?await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null);
+          if(!credit&&providers.openverseImages&&Date.now()<mediaDeadline)credit=await openverseImage(imageSearch,candidate,randomOffset+i+31,usedImages);
+          if(!credit&&providers.huggingFaceImages&&hasRealPaidAccess&&Date.now()<mediaDeadline)credit=await huggingFaceImage(imageSearch,scenes[i],candidate,randomOffset+i+43,portrait);
           if(!credit&&!process.env.VERCEL&&imageDownloads<3&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
           imageDownloads++;
           if (credit) {

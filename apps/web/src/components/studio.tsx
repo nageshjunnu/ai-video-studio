@@ -128,6 +128,7 @@ export function Studio() {
   >([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [useRelatedVideos, setUseRelatedVideos] = useState(false);
+  const [providerOverrides,setProviderOverrides]=useState({pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:true,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true});
   const [videoTitle, setVideoTitle] = useState("");
   const [showTitleScreen, setShowTitleScreen] = useState(true);
   const [videoCountry, setVideoCountry] = useState("GLOBAL");
@@ -299,6 +300,7 @@ export function Studio() {
           showBranding: !(user?.role === "ADMIN" || user?.hasPaid),
           showEngagementCta,
           imageAnimation,
+          providerOverrides:user?.role==="ADMIN"?providerOverrides:undefined,
         }),
       });
       const rawResponse = await response.text();
@@ -1220,6 +1222,18 @@ export function Studio() {
                   )}
                 </>
               )}
+              {step === 4 &&
+                user?.role==="ADMIN"&&(
+                  <div className="premium-media-option admin-provider-tests">
+                    <span>
+                      <b><Sparkle/> Admin provider testing</b>
+                      <small>Choose which third-party services this render may use.</small>
+                    </span>
+                    {Object.entries({pixabayImages:"Pixabay images/clips",pexelsImages:"Pexels images/clips",openverseImages:"Openverse images",huggingFaceImages:"Hugging Face images",geminiVisualPrompts:"Gemini visual prompts",geminiTts:"Gemini narration",relatedVideoClips:"Related video clips"}).map(([key,label])=>
+                      <label key={key}><input type="checkbox" checked={(providerOverrides as any)[key]} onChange={e=>setProviderOverrides(prev=>({...prev,[key]:e.target.checked}))}/><em>{label}</em></label>
+                    )}
+                  </div>
+                )}
               {step === 4 &&
                 (user?.hasPaid || user?.role === "ADMIN" ? (
                   <label className="premium-media-option">
