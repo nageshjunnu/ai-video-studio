@@ -136,6 +136,14 @@ export function Studio() {
   const [scriptLanguage, setScriptLanguage] = useState<"en" | "te">("en");
   const [generatingScript, setGeneratingScript] = useState(false);
   const [aiGenerated, setAiGenerated] = useState(false);
+  function continueWizard(){
+    if(step===2&&!script.trim()){
+      setRenderError("Please add or generate script content before continuing.");
+      return;
+    }
+    setRenderError("");
+    setStep(step+1);
+  }
   const navItems = user?.role === "ADMIN"
     ? [...nav, { n: "Tool access", i: Gear }, { n: "User videos", i: Play }, { n: "Admin videos", i: List }]
     : nav.filter(item => item.n !== "Team");
@@ -1224,14 +1232,27 @@ export function Studio() {
               )}
               {step === 4 &&
                 user?.role==="ADMIN"&&(
-                  <div className="premium-media-option admin-provider-tests">
-                    <span>
-                      <b><Sparkle/> Admin provider testing</b>
-                      <small>Choose which third-party services this render may use.</small>
-                    </span>
-                    {Object.entries({pixabayImages:"Pixabay images/clips",pexelsImages:"Pexels images/clips",openverseImages:"Openverse images",huggingFaceImages:"Hugging Face images",geminiVisualPrompts:"Gemini visual prompts",geminiTts:"Gemini narration",relatedVideoClips:"Related video clips"}).map(([key,label])=>
-                      <label key={key}><input type="checkbox" checked={(providerOverrides as any)[key]} onChange={e=>setProviderOverrides(prev=>({...prev,[key]:e.target.checked}))}/><em>{label}</em></label>
-                    )}
+                  <div className="admin-provider-panel">
+                    <div className="admin-provider-head">
+                      <div><Sparkle weight="fill"/><span><b>Admin provider testing</b><small>Select providers for only this render.</small></span></div>
+                      <button onClick={()=>setProviderOverrides({pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:false,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true})}>Recommended</button>
+                    </div>
+                    <div className="provider-card-grid">
+                      {[
+                        ["pixabayImages","Pixabay","Fast stock images and clips","Stock"],
+                        ["pexelsImages","Pexels","Alternative licensed photos and clips","Stock"],
+                        ["openverseImages","Openverse","Open-license image fallback","Open"],
+                        ["huggingFaceImages","Hugging Face","AI image fallback, slower","AI"],
+                        ["geminiVisualPrompts","Gemini prompts","Better scene search keywords","AI"],
+                        ["geminiTts","Gemini voice","Server narration fallback","Voice"],
+                        ["relatedVideoClips","Video clips","Insert topic-matched clips","Video"],
+                      ].map(([key,name,desc,type])=>{
+                        const active=(providerOverrides as any)[key];
+                        return <button type="button" key={key} className={active?"provider-card active":"provider-card"} onClick={()=>setProviderOverrides(prev=>({...prev,[key]:!(prev as any)[key]}))}>
+                          <i>{type}</i><b>{name}</b><small>{desc}</small><em>{active?"Enabled":"Off"}</em>
+                        </button>
+                      })}
+                    </div>
                   </div>
                 )}
               {step === 4 &&
@@ -1318,7 +1339,7 @@ export function Studio() {
                   className="continue"
                   onClick={() =>
                     step < 5
-                      ? setStep(step + 1)
+                      ? continueWizard()
                       : video
                         ? closeAndResetWizard()
                         : createVideo()
