@@ -968,6 +968,18 @@ export async function POST(request: NextRequest) {
       if(/^https:\/\//i.test(body.uploadedVoiceUrl)){const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error("Could not download the own-voice narration.");await writeFile(uploaded,Buffer.from(await response.arrayBuffer()))}
       else {const local=join(process.cwd(),"public","uploads","voices",body.uploadedVoiceUrl.split("/").pop()!);if(!existsSync(local))throw new Error("Own-voice narration was not found.");await writeFile(uploaded,await readFile(local))}
       narration=uploaded;voice="Own voice";hasAudio=true;narrationSource="uploaded voice";
+    } else if (process.platform !== "darwin" && hasCreatorCreditAccess && providers.geminiTts && process.env.GEMINI_API_KEY) {
+      try {
+        const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
+        if (geminiNarration) {
+          narration = geminiNarration;
+          hasAudio = true;
+          narrationSource = "Gemini TTS";
+          narrationFailure = "";
+        }
+      } catch (error) {
+        narrationFailure = error instanceof Error ? error.message : "Gemini TTS failed";
+      }
     } else if (telugu && existsSync(piper) && existsSync(model)) {
       narration = join(work, "narration.wav");
       try {
