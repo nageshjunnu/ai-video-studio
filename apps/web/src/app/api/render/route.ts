@@ -482,7 +482,7 @@ async function visualPrompts(title:string,scene:string,fallbackImage:string,fall
 }
 async function pixabayImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
   const key=process.env.PIXABAY_API_KEY;if(!key)return null;
-  for(const search of providerQueries(query)){try{const params=new URLSearchParams({key,q:search.slice(0,100),image_type:"photo",orientation:portrait?"vertical":"horizontal",min_width:portrait?"720":"1280",min_height:portrait?"1280":"720",safesearch:"true",order:"popular",per_page:"30"}),response=await fetch(`https://pixabay.com/api/?${params}`,{signal:AbortSignal.timeout(process.env.VERCEL?4500:10000)});if(!response.ok)continue;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>(hit.largeImageURL||hit.webformatURL)&&!used.has(hit.pageURL)),hit=hits[seed%Math.max(1,hits.length)];if(!hit)continue;const image=await fetch(hit.fullHDURL||hit.largeImageURL||hit.webformatURL,{signal:AbortSignal.timeout(process.env.VERCEL?6500:18000)});if(!image.ok)continue;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)continue;await writeFile(output,bytes);used.add(hit.pageURL);return{title:hit.tags||search,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}catch{continue}}return null;
+  for(const search of providerQueries(query)){try{const params=new URLSearchParams({key,q:search.slice(0,100),image_type:"photo",orientation:portrait?"vertical":"horizontal",min_width:portrait?"720":"1280",min_height:portrait?"1280":"720",safesearch:"true",order:"popular",per_page:"30"}),response=await fetch(`https://pixabay.com/api/?${params}`,{signal:AbortSignal.timeout(process.env.VERCEL?2200:10000)});if(!response.ok)continue;const data=await response.json(),hits=(data.hits??[]).filter((hit:any)=>(hit.largeImageURL||hit.webformatURL)&&!used.has(hit.pageURL)),hit=hits[seed%Math.max(1,hits.length)];if(!hit)continue;const image=await fetch(hit.webformatURL||hit.largeImageURL||hit.fullHDURL,{signal:AbortSignal.timeout(process.env.VERCEL?3200:18000)});if(!image.ok)continue;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)continue;await writeFile(output,bytes);used.add(hit.pageURL);return{title:hit.tags||search,source:hit.pageURL,artist:hit.user||"Pixabay contributor",license:"Pixabay Content License"}}catch{continue}}return null;
 }
 async function pixabayVideo(query:string,outputBase:string,seed:number,portrait:boolean):Promise<{path:string;credit:MediaCredit}|null>{
   const key=process.env.PIXABAY_API_KEY;if(!key)return null;
@@ -490,7 +490,7 @@ async function pixabayVideo(query:string,outputBase:string,seed:number,portrait:
 }
 async function pexelsImage(query:string,output:string,seed:number,portrait:boolean,used:Set<string>):Promise<MediaCredit|null>{
   const key=process.env.PEXELS_API_KEY;if(!key)return null;
-  for(const search of providerQueries(query)){try{const params=new URLSearchParams({query:search,orientation:portrait?"portrait":"landscape",size:"large",per_page:"30"}),response=await fetch(`https://api.pexels.com/v1/search?${params}`,{headers:{Authorization:key},signal:AbortSignal.timeout(process.env.VERCEL?4500:10000)});if(!response.ok)continue;const data=await response.json(),photos=(data.photos??[]).filter((photo:any)=>photo.src?.large2x&&!used.has(photo.url)),photo=photos[seed%Math.max(1,photos.length)];if(!photo)continue;const image=await fetch(photo.src.original||photo.src.large2x,{signal:AbortSignal.timeout(process.env.VERCEL?6500:18000)});if(!image.ok)continue;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)continue;await writeFile(output,bytes);used.add(photo.url);return{title:photo.alt||search,source:photo.url,artist:photo.photographer||"Pexels contributor",license:"Pexels License"}}catch{continue}}return null
+  for(const search of providerQueries(query)){try{const params=new URLSearchParams({query:search,orientation:portrait?"portrait":"landscape",size:"large",per_page:"30"}),response=await fetch(`https://api.pexels.com/v1/search?${params}`,{headers:{Authorization:key},signal:AbortSignal.timeout(process.env.VERCEL?2200:10000)});if(!response.ok)continue;const data=await response.json(),photos=(data.photos??[]).filter((photo:any)=>photo.src?.large2x&&!used.has(photo.url)),photo=photos[seed%Math.max(1,photos.length)];if(!photo)continue;const image=await fetch(photo.src.large2x||photo.src.large||photo.src.original,{signal:AbortSignal.timeout(process.env.VERCEL?3200:18000)});if(!image.ok)continue;const bytes=Buffer.from(await image.arrayBuffer());if(!bytes.length||bytes.length>25_000_000)continue;await writeFile(output,bytes);used.add(photo.url);return{title:photo.alt||search,source:photo.url,artist:photo.photographer||"Pexels contributor",license:"Pexels License"}}catch{continue}}return null
 }
 async function pexelsVideo(query:string,outputBase:string,seed:number,portrait:boolean):Promise<{path:string;credit:MediaCredit}|null>{
   const key=process.env.PEXELS_API_KEY;if(!key)return null;
@@ -1002,8 +1002,12 @@ export async function POST(request: NextRequest) {
         hasAudio = false;
         narrationFailure = error instanceof Error ? error.message : "Piper narration failed";
       }
-    } else if (telugu) {
+    } else if (telugu && process.platform === "darwin") {
       narrationFailure = !existsSync(piper) ? `Piper executable not found at ${piper}` : `Piper voice model not found at ${model}`;
+    } else if (telugu) {
+      narrationFailure = process.env.GEMINI_API_KEY
+        ? "Online Telugu voice is disabled by provider/account settings."
+        : "Online Telugu voice needs GEMINI_API_KEY on the render service, or Piper installed with a Telugu model.";
     }
     if (!hasAudio && hasCreatorCreditAccess && providers.geminiTts && process.env.GEMINI_API_KEY) {
       try {
@@ -1156,7 +1160,6 @@ export async function POST(request: NextRequest) {
         }
         if (
           path === fallback &&
-          !(process.env.VERCEL && shortScript) &&
           Date.now() < mediaDeadline &&
           imageDownloads < (quickScript ? 1 : shortScript ? 2 : process.env.VERCEL ? 6 : Math.min(14, scenes.length))
         ) {
