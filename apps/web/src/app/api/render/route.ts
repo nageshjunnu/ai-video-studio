@@ -1077,8 +1077,9 @@ export async function POST(request: NextRequest) {
           ? Math.max(2.6, Math.min(5.5, weight / 16))
           : Math.max(3.5, weight / 13),
     );
+    const fastOnlineTelugu = process.env.VERCEL && telugu && quickScript;
     const ctaSceneIndexes = new Set<number>();
-    if (body.showEngagementCta !== false) {
+    if (body.showEngagementCta !== false && !fastOnlineTelugu) {
       ctaSceneIndexes.add(scenes.length);
       scenes.push("Enjoyed this story?\nSubscribe for more thoughtful videos.");
       sceneDurations.push(process.env.VERCEL ? 2.4 : 3);
@@ -1215,7 +1216,7 @@ export async function POST(request: NextRequest) {
     let music="";
     const requestedMusicUrl=body.backgroundMusicUrl&&body.backgroundMusicUrl!==body.uploadedVoiceUrl?body.backgroundMusicUrl:"";
     if(requestedMusicUrl){music=join(work,`background-music${requestedMusicUrl.match(/\.[a-z0-9]+(?:\?|$)/i)?.[0]?.replace("?","")||".audio"}`);if(/^https:\/\//i.test(requestedMusicUrl)){const response=await fetch(requestedMusicUrl,{signal:AbortSignal.timeout(30000)});if(response.ok)await writeFile(music,Buffer.from(await response.arrayBuffer()))}else if(requestedMusicUrl.startsWith("/uploads/voices/")){const local=join(process.cwd(),"public","uploads","voices",requestedMusicUrl.split("/").pop()!);if(existsSync(local))await writeFile(music,await readFile(local))}}
-    const hasUploadedMusic = !!music && existsSync(music), musicPreset=body.backgroundMusicPreset, hasMusic=hasUploadedMusic||!!musicPreset;
+    const hasUploadedMusic = !!music && existsSync(music), musicPreset=fastOnlineTelugu&&!hasUploadedMusic?undefined:body.backgroundMusicPreset, hasMusic=hasUploadedMusic||!!musicPreset;
     if (hasUploadedMusic) args.push("-stream_loop","-1","-i",music);
     else if(musicPreset){const tone=musicPreset==="cinematic"?"0.10*sin(2*PI*110*t)+0.045*sin(2*PI*165*t)+0.025*sin(2*PI*220*t)":"0.07*sin(2*PI*196*t)+0.035*sin(2*PI*293.66*t)+0.02*sin(2*PI*392*t)";args.push("-f","lavfi","-i",`aevalsrc=${tone}:s=44100`)}
     const font = join(
@@ -1244,7 +1245,7 @@ export async function POST(request: NextRequest) {
             : body.showCaptions === false
               ? ""
               : captionFilter.replace(captions[0], captions[i]);
-        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : endCard ? "THANK YOU" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*renderFps)),still=!isVideo(slides[i]),base=`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`,motion=!still||body.imageAnimation==="none"||!body.imageAnimation?base:body.imageAnimation==="zoom"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,crop=${Math.round(w*1.12)}:${Math.round(h*1.12)},zoompan=z='min(zoom+0.0012,1.16)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=${renderFps},trim=duration=${sceneDurations[i]},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:body.imageAnimation==="pan"?`scale=${Math.round(w*1.18)}:${Math.round(h*1.18)}:force_original_aspect_ratio=increase,crop=${Math.round(w*1.18)}:${Math.round(h*1.18)},zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=1:s=${w}x${h}:fps=${renderFps},trim=duration=${sceneDurations[i]},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:`${base},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
+        const branding=!showBranding?"":`,drawtext=fontfile='${font}':text='DRISHYANA AI  |  ${titleCard ? "PRESENTS" : endCard ? "THANK YOU" : `SCENE ${i + (hasTitle ? 0 : 1)}`}':fontcolor=white@0.75:fontsize=20:x=w*0.08:y=h*0.04`,frames=Math.max(1,Math.round(sceneDurations[i]*renderFps)),still=!isVideo(slides[i]),base=`scale=${w}:${h}:force_original_aspect_ratio=increase:in_range=auto:out_range=tv,crop=${w}:${h},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`,animation=fastOnlineTelugu?"none":body.imageAnimation,motion=!still||animation==="none"||!animation?base:animation==="zoom"?`scale=${Math.round(w*1.12)}:${Math.round(h*1.12)}:force_original_aspect_ratio=increase,crop=${Math.round(w*1.12)}:${Math.round(h*1.12)},zoompan=z='min(zoom+0.0012,1.16)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=${renderFps},trim=duration=${sceneDurations[i]},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:animation==="pan"?`scale=${Math.round(w*1.18)}:${Math.round(h*1.18)}:force_original_aspect_ratio=increase,crop=${Math.round(w*1.18)}:${Math.round(h*1.18)},zoompan=z=1.08:x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)/2':d=1:s=${w}x${h}:fps=${renderFps},trim=duration=${sceneDurations[i]},setsar=1,eq=saturation=1.08:contrast=1.04,unsharp=5:5:0.35`:`${base},fade=t=in:st=0:d=0.7,fade=t=out:st=${Math.max(.8,sceneDurations[i]-.7)}:d=0.7`;
         return `[${i}:v]${motion},setsar=1,format=yuv420p${cap}${branding}[v${i}]`;
       })
       .join(";");
