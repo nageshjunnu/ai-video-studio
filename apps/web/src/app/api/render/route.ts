@@ -907,6 +907,7 @@ export async function POST(request: NextRequest) {
     }
   }
   const hasRealPaidAccess = account?.role === "ADMIN" || account?.hasPaid === true;
+  const hasCreatorCreditAccess = hasRealPaidAccess || Number(account?.credits ?? 0) > 0;
   let providers={pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:false,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true};
   if(authorization){try{const response=await fetch(`${serverApiUrl()}/creator-tools/access`,{headers:{authorization},cache:"no-store"}),access=response.ok?await response.json():null;providers={...providers,...(access?.thirdParty??{})}}catch{}}
   if(account?.role==="ADMIN"&&body.providerOverrides)providers={...providers,...body.providerOverrides};
@@ -951,6 +952,7 @@ export async function POST(request: NextRequest) {
     let narration = join(work, "narration.aiff");
     let hasAudio = false;
     let narrationFailure = "";
+    let narrationSource = "";
     const telugu = /[\u0C00-\u0C7F]/u.test(cleanNarrationText);
     let voice = body.voice || (telugu ? "Padmavathi" : "Samantha");
     const rate = Math.max(110, Math.min(220, body.speed ?? 155));
@@ -965,7 +967,7 @@ export async function POST(request: NextRequest) {
       const uploaded=join(work,"own-voice.audio");
       if(/^https:\/\//i.test(body.uploadedVoiceUrl)){const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error("Could not download the own-voice narration.");await writeFile(uploaded,Buffer.from(await response.arrayBuffer()))}
       else {const local=join(process.cwd(),"public","uploads","voices",body.uploadedVoiceUrl.split("/").pop()!);if(!existsSync(local))throw new Error("Own-voice narration was not found.");await writeFile(uploaded,await readFile(local))}
-      narration=uploaded;voice="Own voice";hasAudio=true;
+      narration=uploaded;voice="Own voice";hasAudio=true;narrationSource="uploaded voice";
     } else if (telugu && existsSync(piper) && existsSync(model)) {
       narration = join(work, "narration.wav");
       try {
@@ -983,6 +985,7 @@ export async function POST(request: NextRequest) {
           await run(ffmpeg.path,args);
         }
         hasAudio = true;
+        narrationSource = "local Piper";
       } catch (error) {
         hasAudio = false;
         narrationFailure = error instanceof Error ? error.message : "Piper narration failed";
@@ -990,12 +993,13 @@ export async function POST(request: NextRequest) {
     } else if (telugu) {
       narrationFailure = !existsSync(piper) ? `Piper executable not found at ${piper}` : `Piper voice model not found at ${model}`;
     }
-    if (!hasAudio && hasRealPaidAccess && providers.geminiTts && process.env.GEMINI_API_KEY) {
+    if (!hasAudio && hasCreatorCreditAccess && providers.geminiTts && process.env.GEMINI_API_KEY) {
       try {
         const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
         if (geminiNarration) {
           narration = geminiNarration;
           hasAudio = true;
+          narrationSource = "Gemini TTS";
           narrationFailure = "";
         }
       } catch (error) {
@@ -1014,9 +1018,15 @@ export async function POST(request: NextRequest) {
           cleanNarrationText,
         ]);
         hasAudio = true;
+        narrationSource = "macOS voice";
       } catch {
         hasAudio = false;
       }
+    }
+    if (!hasAudio && !narrationFailure && process.platform !== "darwin") {
+      narrationFailure = process.env.GEMINI_API_KEY
+        ? "Server TTS is not enabled for this account or provider settings."
+        : "No server voice is configured. Add GEMINI_API_KEY to the render service, or upload an own-voice narration.";
     }
     if(hasAudio&&voice.startsWith("Child")){
       const childNarration=join(work,"narration-child.wav");
@@ -1291,10 +1301,10 @@ export async function POST(request: NextRequest) {
       scenes: scenes.length,
       duration: Math.round(sceneDurations.reduce((a, b) => a + b, 0)),
       voice: hasAudio
-        ? `${voice} (local Piper)`
+        ? `${voice} (${narrationSource || "voice"})`
         : telugu
           ? `Telugu narration failed — ${narrationFailure || "unknown Piper error"}`
-          : "Silent",
+          : `Narration failed — ${narrationFailure || "server voice unavailable"}`,
       language: telugu ? "Telugu" : "Auto",
       media: credits,
       relatedVideosUsed,
