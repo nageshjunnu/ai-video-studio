@@ -298,12 +298,16 @@ export function Studio() {
       );
       setUser((u) => (u ? { ...u, credits: startedRender.balance } : u));
       const token = session()?.accessToken;
+      const renderEndpoint =
+        process.env.NEXT_PUBLIC_RENDER_ENDPOINT?.replace(/\/+$/, "") ||
+        "/api/render";
+      const externalRenderer = /^https?:\/\//i.test(renderEndpoint);
       const controller = new AbortController();
       const renderTimeout = window.setTimeout(
         () => controller.abort(),
-        [...script].length <= 450 ? 135_000 : 270_000,
+        externalRenderer ? 900_000 : [...script].length <= 450 ? 135_000 : 270_000,
       );
-      const response = await fetch("/api/render", {
+      const response = await fetch(renderEndpoint, {
         method: "POST",
         signal: controller.signal,
         headers: {
@@ -347,7 +351,7 @@ export function Studio() {
           rawResponse.includes("An error occurred with your deployment");
         data = {
           error: timedOut
-            ? "Video rendering exceeded Vercel's 5-minute limit. Your reserved credits were refunded. Use a shorter script or deploy the background render worker."
+            ? "Video rendering exceeded Vercel's function limit. Your reserved credits were refunded. Set NEXT_PUBLIC_RENDER_ENDPOINT to a Render/Railway renderer URL and redeploy the website."
             : rawResponse.slice(0, 500) || "Rendering service returned an invalid response.",
         };
       }

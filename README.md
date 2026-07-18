@@ -23,9 +23,12 @@ WEB_URL=https://your-vercel-domain.vercel.app
 # Vercel web project
 API_URL=https://drishyana-api.onrender.com/api/v1
 NEXT_PUBLIC_API_URL=https://drishyana-api.onrender.com/api/v1
+NEXT_PUBLIC_RENDER_ENDPOINT=https://your-renderer-service.onrender.com/api/render
 ```
 
 `WEB_URL` accepts a comma-separated list when production and preview frontend origins both need API access. Restart both development servers after changing environment variables.
+
+Do not use Vercel serverless functions for full FFmpeg video rendering. Vercel can terminate `/api/render` with `FUNCTION_INVOCATION_TIMEOUT`. Keep `NEXT_PUBLIC_RENDER_ENDPOINT=/api/render` only for local testing; in production point it to a Render/Railway/Fly service that hosts the renderer.
 
 ## Quick start
 
