@@ -908,9 +908,10 @@ export async function POST(request: NextRequest) {
   }
   const hasRealPaidAccess = account?.role === "ADMIN" || account?.hasPaid === true;
   const hasCreatorCreditAccess = hasRealPaidAccess || Number(account?.credits ?? 0) > 0;
-  let providers={pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:false,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true};
+  let providers={pixabayImages:true,pexelsImages:true,openverseImages:false,huggingFaceImages:false,geminiVisualPrompts:false,geminiTts:true,relatedVideoClips:false};
   if(authorization){try{const response=await fetch(`${serverApiUrl()}/creator-tools/access`,{headers:{authorization},cache:"no-store"}),access=response.ok?await response.json():null;providers={...providers,...(access?.thirdParty??{})}}catch{}}
   if(account?.role==="ADMIN"&&body.providerOverrides)providers={...providers,...body.providerOverrides};
+  if(process.env.VERCEL&&account?.role!=="ADMIN"){providers={...providers,openverseImages:false,huggingFaceImages:false,geminiVisualPrompts:false,relatedVideoClips:false}}
   let showBranding=true;
   if(body.showBranding===false)showBranding=!hasRealPaidAccess;
   if (body.useRelatedVideos) {

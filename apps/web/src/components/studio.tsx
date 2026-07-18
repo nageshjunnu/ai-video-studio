@@ -128,7 +128,8 @@ export function Studio() {
   >([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [useRelatedVideos, setUseRelatedVideos] = useState(false);
-  const [providerOverrides,setProviderOverrides]=useState({pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:false,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true});
+  const fastProviderPreset={pixabayImages:true,pexelsImages:true,openverseImages:false,huggingFaceImages:false,geminiVisualPrompts:false,geminiTts:true,relatedVideoClips:false};
+  const [providerOverrides,setProviderOverrides]=useState(fastProviderPreset);
   const [videoTitle, setVideoTitle] = useState("");
   const [showTitleScreen, setShowTitleScreen] = useState(true);
   const [videoCountry, setVideoCountry] = useState("GLOBAL");
@@ -1261,17 +1262,17 @@ export function Studio() {
                   <div className="admin-provider-panel">
                     <div className="admin-provider-head">
                       <div><Sparkle weight="fill"/><span><b>Admin provider testing</b><small>Select providers for only this render.</small></span></div>
-                      <button onClick={()=>setProviderOverrides({pixabayImages:true,pexelsImages:true,openverseImages:true,huggingFaceImages:false,geminiVisualPrompts:true,geminiTts:true,relatedVideoClips:true})}>Recommended</button>
+                      <button onClick={()=>setProviderOverrides(fastProviderPreset)}>Fast preset</button>
                     </div>
                     <div className="provider-card-grid">
                       {[
                         ["pixabayImages","Pixabay","Fast stock images and clips","Stock"],
                         ["pexelsImages","Pexels","Alternative licensed photos and clips","Stock"],
-                        ["openverseImages","Openverse","Open-license image fallback","Open"],
-                        ["huggingFaceImages","Hugging Face","AI image fallback, slower","AI"],
-                        ["geminiVisualPrompts","Gemini prompts","Better scene search keywords","AI"],
-                        ["geminiTts","Gemini voice","Server narration fallback","Voice"],
-                        ["relatedVideoClips","Video clips","Insert topic-matched clips","Video"],
+                        ["openverseImages","Openverse","Open-license fallback; slower","Open"],
+                        ["huggingFaceImages","Hugging Face","AI image fallback; testing only","AI"],
+                        ["geminiVisualPrompts","Gemini prompts","Advanced keyword rewrite; slower","AI"],
+                        ["geminiTts","Gemini voice","Server narration fallback for Telugu","Voice"],
+                        ["relatedVideoClips","Video clips","Insert topic-matched clips; slower","Video"],
                       ].map(([key,name,desc,type])=>{
                         const active=(providerOverrides as any)[key];
                         return <button type="button" key={key} className={active?"provider-card active":"provider-card"} onClick={()=>setProviderOverrides(prev=>({...prev,[key]:!(prev as any)[key]}))}>
