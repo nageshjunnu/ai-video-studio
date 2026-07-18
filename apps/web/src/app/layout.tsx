@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PageTitle } from "@/components/page-title";
 import "./globals.css";
 export const metadata: Metadata = {
   title: "Drishyana AI — Stories in Motion",
@@ -11,7 +12,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <PageTitle />
+        {children}
+      </body>
     </html>
   );
 }
