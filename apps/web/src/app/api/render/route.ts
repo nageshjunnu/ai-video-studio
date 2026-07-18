@@ -138,8 +138,11 @@ function geminiVoiceName(voice: string, telugu: boolean) {
   if (voice.startsWith("Child")) return "Kore";
   return telugu ? "Kore" : "Kore";
 }
+function geminiApiKey() {
+  return process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_AI_API_KEY || "";
+}
 async function geminiTts(text: string, voice: string, telugu: boolean, work: string) {
-  const key = process.env.GEMINI_API_KEY;
+  const key = geminiApiKey();
   if (!key) return null;
   const chunks = narrationChunks(text, 900),
     files: string[] = [],
@@ -468,7 +471,7 @@ function providerQueries(query:string){
   return process.env.VERCEL ? queries.slice(0,3) : queries;
 }
 async function visualPrompts(title:string,scene:string,fallbackImage:string,fallbackVideo:string){
-  const key=process.env.GEMINI_API_KEY;
+  const key=geminiApiKey();
   if(!key)return {image:fallbackImage,video:fallbackVideo};
   try{
     const prompt=`Create short English media search queries for this video scene. Use concrete visual keywords only: places, people, objects, action, era, culture, environment. Return JSON only: {"image":"...","video":"..."}\nTitle: ${title || "Untitled"}\nScene: ${scene.slice(0,700)}`;
@@ -969,7 +972,7 @@ export async function POST(request: NextRequest) {
       if(/^https:\/\//i.test(body.uploadedVoiceUrl)){const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error("Could not download the own-voice narration.");await writeFile(uploaded,Buffer.from(await response.arrayBuffer()))}
       else {const local=join(process.cwd(),"public","uploads","voices",body.uploadedVoiceUrl.split("/").pop()!);if(!existsSync(local))throw new Error("Own-voice narration was not found.");await writeFile(uploaded,await readFile(local))}
       narration=uploaded;voice="Own voice";hasAudio=true;narrationSource="uploaded voice";
-    } else if (process.platform !== "darwin" && hasCreatorCreditAccess && providers.geminiTts && process.env.GEMINI_API_KEY) {
+    } else if (process.platform !== "darwin" && hasCreatorCreditAccess && providers.geminiTts && geminiApiKey()) {
       try {
         const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
         if (geminiNarration) {
@@ -1006,11 +1009,11 @@ export async function POST(request: NextRequest) {
     } else if (telugu && process.platform === "darwin") {
       narrationFailure = !existsSync(piper) ? `Piper executable not found at ${piper}` : `Piper voice model not found at ${model}`;
     } else if (telugu) {
-      narrationFailure = process.env.GEMINI_API_KEY
+      narrationFailure = geminiApiKey()
         ? "Online Telugu voice is disabled by provider/account settings."
-        : "Online Telugu voice needs GEMINI_API_KEY on the render service, or Piper installed with a Telugu model.";
+        : "Online Telugu voice needs GEMINI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or GOOGLE_AI_API_KEY on the render service.";
     }
-    if (!hasAudio && hasCreatorCreditAccess && providers.geminiTts && process.env.GEMINI_API_KEY) {
+    if (!hasAudio && hasCreatorCreditAccess && providers.geminiTts && geminiApiKey()) {
       try {
         const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
         if (geminiNarration) {
@@ -1041,9 +1044,9 @@ export async function POST(request: NextRequest) {
       }
     }
     if (!hasAudio && !narrationFailure && process.platform !== "darwin") {
-      narrationFailure = process.env.GEMINI_API_KEY
+      narrationFailure = geminiApiKey()
         ? "Server TTS is not enabled for this account or provider settings."
-        : "No server voice is configured. Add GEMINI_API_KEY to the render service, or upload an own-voice narration.";
+        : "No server voice is configured. Add GEMINI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or GOOGLE_AI_API_KEY to the render service, or upload an own-voice narration.";
     }
     if(hasAudio&&voice.startsWith("Child")){
       const childNarration=join(work,"narration-child.wav");
