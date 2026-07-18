@@ -149,6 +149,22 @@ export function Studio() {
   const navItems = user?.role === "ADMIN"
     ? [...nav, { n: "Tool access", i: Gear }, { n: "User videos", i: Play }, { n: "Admin videos", i: List }]
     : nav.filter(item => item.n !== "Team");
+  function navigateTo(n:string){
+    if(n==="Create video")setWizard(true);
+    else if(n==="Projects")router.push("/projects");
+    else if(n==="Templates")router.push("/templates");
+    else if(n==="Analytics")router.push("/analytics");
+    else if(n==="Billing")router.push("/buy-credits");
+    else if(n==="Team")router.push("/team");
+    else if(n==="Notifications")router.push(user?.role==="ADMIN"?"/admin/notifications":"/notifications");
+    else if(n==="Creator tools")router.push("/tools");
+    else if(n==="My account")router.push("/account");
+    else if(n==="Tool access")router.push("/admin/features");
+    else if(n==="User videos")router.push("/admin/videos?scope=users");
+    else if(n==="Admin videos")router.push("/admin/videos?scope=admins");
+    else router.push("/");
+    setMobile(false);
+  }
   async function refreshDashboard() {
     try {
       const [data, allProjects] = await Promise.all([
@@ -282,8 +298,14 @@ export function Studio() {
       );
       setUser((u) => (u ? { ...u, credits: startedRender.balance } : u));
       const token = session()?.accessToken;
+      const controller = new AbortController();
+      const renderTimeout = window.setTimeout(
+        () => controller.abort(),
+        [...script].length <= 450 ? 135_000 : 270_000,
+      );
       const response = await fetch("/api/render", {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "content-type": "application/json",
           ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -313,7 +335,7 @@ export function Studio() {
           imageAnimation,
           providerOverrides:user?.role==="ADMIN"?providerOverrides:undefined,
         }),
-      });
+      }).finally(() => window.clearTimeout(renderTimeout));
       const rawResponse = await response.text();
       let data: any;
       try {
@@ -347,7 +369,9 @@ export function Studio() {
           () => {},
         );
       setRenderError(
-        error instanceof Error ? error.message : "Rendering failed",
+        error instanceof DOMException && error.name === "AbortError"
+          ? "Video rendering is taking too long on the website server. Your credits were refunded. Please try a shorter script, disable related videos/music, or use the background render server for full videos."
+          : error instanceof Error ? error.message : "Rendering failed",
       );
       await refreshDashboard().catch(() => {});
     } finally {
@@ -533,33 +557,7 @@ export function Studio() {
             <button
               key={n}
               className={idx === 0 ? "active" : ""}
-              onClick={() =>
-                n === "Create video"
-                  ? setWizard(true)
-                  : n === "Projects"
-                    ? router.push("/projects")
-                    : n === "Templates"
-                      ? router.push("/templates")
-                      : n === "Analytics"
-                        ? router.push("/analytics")
-                        : n === "Billing"
-                          ? router.push("/buy-credits")
-                          : n === "Team"
-                            ? router.push("/team")
-                            : n === "Notifications"
-                              ? router.push(user?.role === "ADMIN" ? "/admin/notifications" : "/notifications")
-                              : n === "Creator tools"
-                                ? router.push("/tools")
-                                : n === "My account"
-                                  ? router.push("/account")
-                                : n === "Tool access"
-                                  ? router.push("/admin/features")
-                              : n === "User videos"
-                                ? router.push("/admin/videos?scope=users")
-                                : n === "Admin videos"
-                                  ? router.push("/admin/videos?scope=admins")
-                                  : undefined
-              }
+              onClick={() => navigateTo(n)}
             >
               <I />
               <span>{n}</span>
@@ -801,6 +799,22 @@ export function Studio() {
           </section>
         </div>
       </main>
+      <nav className="mobile-tabbar" aria-label="Mobile navigation">
+        {[
+          ["Home", House],
+          ["Create video", MagicWand],
+          ["Projects", SquaresFour],
+          ["Menu", List],
+        ].map(([label, Icon]) => {
+          const I = Icon as typeof House;
+          return (
+            <button key={label as string} onClick={() => label === "Menu" ? setMobile(true) : navigateTo(label as string)}>
+              <I />
+              <span>{label as string}</span>
+            </button>
+          );
+        })}
+      </nav>
       {wizard && (
         <div className="modal-back">
           <div className="wizard">

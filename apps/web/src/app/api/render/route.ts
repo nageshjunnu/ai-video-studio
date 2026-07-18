@@ -1134,6 +1134,7 @@ export async function POST(request: NextRequest) {
         }
         if (
           path === fallback &&
+          !(process.env.VERCEL && shortScript) &&
           Date.now() < mediaDeadline &&
           imageDownloads < (quickScript ? 1 : shortScript ? 2 : process.env.VERCEL ? 6 : Math.min(14, scenes.length))
         ) {

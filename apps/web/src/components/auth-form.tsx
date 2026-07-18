@@ -148,12 +148,6 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
               </>
             )}
           </div>
-          {mode === "login" && (
-            <div className="test-login">
-              <b>Local test customer</b>
-              <code>customer@voxora.local / Customer@123</code>
-            </div>
-          )}
         </form>
       </section>
     </main>
