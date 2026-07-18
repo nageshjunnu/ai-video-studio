@@ -276,6 +276,9 @@ export function Studio() {
       setProgress(Math.min(softCap, Math.round(5 + (seconds / estimatedSeconds) * 83)));
     }, 1000);
     let projectId = "";
+    const renderEndpoint =
+      process.env.NEXT_PUBLIC_RENDER_ENDPOINT?.replace(/\/+$/, "") ||
+      "/api/render";
     try {
       const project = await api<any>("/projects", {
         method: "POST",
@@ -298,14 +301,12 @@ export function Studio() {
       );
       setUser((u) => (u ? { ...u, credits: startedRender.balance } : u));
       const token = session()?.accessToken;
-      const renderEndpoint =
-        process.env.NEXT_PUBLIC_RENDER_ENDPOINT?.replace(/\/+$/, "") ||
-        "/api/render";
       const externalRenderer = /^https?:\/\//i.test(renderEndpoint);
       const controller = new AbortController();
+      const shortRender = [...script].length <= 450;
       const renderTimeout = window.setTimeout(
         () => controller.abort(),
-        externalRenderer ? 900_000 : [...script].length <= 450 ? 135_000 : 270_000,
+        externalRenderer ? 900_000 : shortRender ? 285_000 : 295_000,
       );
       const response = await fetch(renderEndpoint, {
         method: "POST",
@@ -374,7 +375,7 @@ export function Studio() {
         );
       setRenderError(
         error instanceof DOMException && error.name === "AbortError"
-          ? "Video rendering is taking too long on the website server. Your credits were refunded. Please try a shorter script, disable related videos/music, or use the background render server for full videos."
+          ? `Video rendering is taking too long on ${renderEndpoint}. Your credits were refunded. For reliable online rendering, set NEXT_PUBLIC_RENDER_ENDPOINT to a Render/Railway/Fly renderer URL instead of Vercel /api/render.`
           : error instanceof Error ? error.message : "Rendering failed",
       );
       await refreshDashboard().catch(() => {});
