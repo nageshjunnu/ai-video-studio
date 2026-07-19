@@ -451,6 +451,21 @@ function titleContextQuery(title: string, index: number, kind: "image" | "video"
   const choices = kind === "video" ? match[2] : match[1];
   return choices[index % choices.length];
 }
+function teluguVisualQueries(text:string,index=0){
+  const source=text.normalize("NFC");
+  const groups:[RegExp,string[]][]=[
+    [/భారతదేశ|భారత్|రాష్ట్ర|కేంద్రపాలిత|జిల్లా|మండలం|తహసీల్/u,["India states map culture","Indian government building flag","India geography map","Indian city administration","India diverse landscape"]],
+    [/విక్రమాదిత్య|ఉజ్జయిని|ఉజ్జయిన్/u,["Vikramaditya Ujjain royal court","Ujjain Mahakaleshwar temple","ancient Indian king palace","Ram Ghat Ujjain heritage"]],
+    [/రాజు|రాజసభ|సింహాసన/u,["ancient Indian royal court","Indian king palace throne","historic Indian palace interior"]],
+    [/దేవాలయ|శివ|మహాకాళ|హరసిద్ధి/u,["Indian temple architecture","Mahakaleshwar temple Ujjain","Hindu temple ritual India"]],
+    [/యుద్ధ|సైన్య|వీర|శకుల/u,["ancient Indian warriors fort","Indian historical battle painting","Indian fort heritage"]],
+    [/పండిత|విద్య|సాహిత్య|కవి|నవరత్న/u,["ancient Indian scholars manuscript","Sanskrit manuscript India","Indian literature palm leaf manuscript"]],
+    [/రైత|గ్రామ|ప్రజ|వ్యాపార/u,["Indian village life","Indian farmers agriculture","traditional Indian market"]],
+    [/బేతాళ|శ్మశాన|కథ/u,["Indian folklore storytelling","Vikram Betal illustration","ancient Indian forest night story"]]
+  ];
+  const found=groups.find(([pattern])=>pattern.test(source))?.[1];
+  return found?.[index%found.length]??null;
+}
 type MediaCredit = {
   title: string;
   source: string;
@@ -458,9 +473,11 @@ type MediaCredit = {
   license: string;
 };
 function providerQueries(query:string){
+  const teluguQuery=teluguVisualQueries(query);
   const ascii=query.replace(/[^a-zA-Z0-9 ]/g," ").replace(/\s+/g," ").trim(),words=ascii.split(" ").filter(word=>word.length>2&&!/^(the|and|from|with|story|video|image|introduction|history|officially|republic|country|world)$/i.test(word));
   const focused=words.slice(0,5).join(" "),ai=/\b(ai|artificial intelligence|machine learning|robot|technology|digital)\b/i.test(ascii),india=/\b(india|indian|bharat|ujjain|temple|king|royal|heritage|ancient)\b/i.test(ascii);
   const queries=Array.from(new Set([
+    teluguQuery,
     focused,
     focused ? `cinematic ${focused}` : null,
     focused ? `documentary ${focused}` : null,
@@ -959,6 +976,7 @@ export async function POST(request: NextRequest) {
     let narrationSource = "";
     const telugu = /[\u0C00-\u0C7F]/u.test(cleanNarrationText);
     let voice = body.voice || (telugu ? "Padmavathi" : "Samantha");
+    const canUseGeminiVoice = hasCreatorCreditAccess && (providers.geminiTts || (telugu && process.env.VERCEL)) && !!geminiApiKey();
     const rate = Math.max(110, Math.min(220, body.speed ?? 155));
     const root = join(process.cwd(), "../.."),
       piper = join(root, ".venv", "bin", "piper"),
@@ -972,7 +990,7 @@ export async function POST(request: NextRequest) {
       if(/^https:\/\//i.test(body.uploadedVoiceUrl)){const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error("Could not download the own-voice narration.");await writeFile(uploaded,Buffer.from(await response.arrayBuffer()))}
       else {const local=join(process.cwd(),"public","uploads","voices",body.uploadedVoiceUrl.split("/").pop()!);if(!existsSync(local))throw new Error("Own-voice narration was not found.");await writeFile(uploaded,await readFile(local))}
       narration=uploaded;voice="Own voice";hasAudio=true;narrationSource="uploaded voice";
-    } else if (process.platform !== "darwin" && hasCreatorCreditAccess && providers.geminiTts && geminiApiKey()) {
+    } else if (process.platform !== "darwin" && canUseGeminiVoice) {
       try {
         const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
         if (geminiNarration) {
@@ -1013,7 +1031,7 @@ export async function POST(request: NextRequest) {
         ? "Online Telugu voice is disabled by provider/account settings."
         : "Online Telugu voice needs GEMINI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or GOOGLE_AI_API_KEY on the render service.";
     }
-    if (!hasAudio && hasCreatorCreditAccess && providers.geminiTts && geminiApiKey()) {
+    if (!hasAudio && canUseGeminiVoice) {
       try {
         const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
         if (geminiNarration) {
@@ -1045,7 +1063,7 @@ export async function POST(request: NextRequest) {
     }
     if (!hasAudio && !narrationFailure && process.platform !== "darwin") {
       narrationFailure = geminiApiKey()
-        ? "Server TTS is not enabled for this account or provider settings."
+        ? "Server TTS failed or is disabled for this account."
         : "No server voice is configured. Add GEMINI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or GOOGLE_AI_API_KEY to the render service, or upload an own-voice narration.";
     }
     if(hasAudio&&voice.startsWith("Child")){
@@ -1166,7 +1184,7 @@ export async function POST(request: NextRequest) {
         if (
           path === fallback &&
           Date.now() < mediaDeadline &&
-          imageDownloads < (quickScript ? 1 : shortScript ? 2 : process.env.VERCEL ? 6 : Math.min(14, scenes.length))
+          imageDownloads < (quickScript ? Math.min(3, scenes.length) : shortScript ? Math.min(4, scenes.length) : process.env.VERCEL ? 6 : Math.min(14, scenes.length))
         ) {
           const candidate = join(work, `media-${imageDownloads}.jpg`);
           let credit = (providers.pixabayImages?await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null);
