@@ -1213,7 +1213,7 @@ export function Studio() {
                           </a>
                         </div>
                       </div>
-                      {video.voice.includes("narration failed") && (
+                      {video.voice.toLowerCase().includes("narration failed") && (
                         <p className="render-error">
                           {video.voice}
                         </p>

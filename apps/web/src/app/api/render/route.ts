@@ -1033,7 +1033,10 @@ export async function POST(request: NextRequest) {
           narrationFailure = "";
         }
       } catch (error) {
-        narrationFailure = error instanceof Error ? error.message : "Kokoro TTS failed";
+        const message = error instanceof Error ? error.message : "Kokoro TTS failed";
+        narrationFailure = message === "fetch failed"
+          ? "Kokoro TTS could not be reached from this server. Video was created without narration."
+          : message;
       }
     } else if (process.platform !== "darwin" && canUseGeminiVoice) {
       try {
@@ -1388,8 +1391,10 @@ export async function POST(request: NextRequest) {
       duration: Math.round(sceneDurations.reduce((a, b) => a + b, 0)),
       voice: hasAudio
         ? `${voice} (${narrationSource || "voice"})`
-        : telugu
-          ? `Telugu narration failed — ${narrationFailure || "unknown Piper error"}`
+        : telugu && kokoroOnly
+          ? `No narration — ${narrationFailure || "Kokoro TTS unavailable"}`
+          : telugu
+          ? `No narration — ${narrationFailure || "server Telugu voice unavailable"}`
           : `Narration failed — ${narrationFailure || "server voice unavailable"}`,
       language: telugu ? "Telugu" : "Auto",
       media: credits,
