@@ -146,7 +146,7 @@ function hfApiKey() {
 }
 async function kokoroTts(text:string,voice:string,telugu:boolean,work:string){
   const key=hfApiKey(),model=process.env.KOKORO_TTS_MODEL||"hexgrad/Kokoro-82M";
-  if(!key||!process.env.KOKORO_TTS_MODEL)return null;
+  if(!key)return null;
   const output=join(work,"kokoro-narration.wav"),raw=join(work,"kokoro-narration.audio");
   const prompt=telugu?`Read naturally in Telugu:\n${text}`:text;
   const voiceName=voice==="Venkatesh"?"am_adam":voice.startsWith("Child")?"af_bella":"af_heart";
@@ -1024,7 +1024,7 @@ export async function POST(request: NextRequest) {
     const voiceProvider=(process.env.VOICE_PROVIDER||"piper").toLowerCase();
     const kokoroOnly=voiceProvider==="kokoro"||voiceProvider==="kokoto";
     const piperOnly=voiceProvider==="piper"||voiceProvider==="local";
-    const canUseKokoroVoice = hasCreatorCreditAccess && !!hfApiKey() && !!process.env.KOKORO_TTS_MODEL;
+    const canUseKokoroVoice = hasCreatorCreditAccess && !!hfApiKey();
     const canUseGeminiVoice = voiceProvider==="gemini" && hasCreatorCreditAccess && (providers.geminiTts || (telugu && process.env.VERCEL)) && !!geminiApiKey();
     const rate = Math.max(110, Math.min(220, body.speed ?? 155));
     const root = join(process.cwd(), "../.."),
@@ -1034,12 +1034,14 @@ export async function POST(request: NextRequest) {
           ? "te_IN-venkatesh-medium"
           : "te_IN-padmavathi-medium",
       model = join(root, "models", "piper", `${modelName}.onnx`);
+    const piperAvailable = telugu && existsSync(piper) && existsSync(model);
+    const allowKokoroAfterMissingPiper = piperOnly && process.env.VERCEL && !piperAvailable;
     if (body.uploadedVoiceUrl) {
       const uploaded=join(work,"own-voice.audio");
       if(/^https:\/\//i.test(body.uploadedVoiceUrl)){const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error("Could not download the own-voice narration.");await writeFile(uploaded,Buffer.from(await response.arrayBuffer()))}
       else {const local=join(process.cwd(),"public","uploads","voices",body.uploadedVoiceUrl.split("/").pop()!);if(!existsSync(local))throw new Error("Own-voice narration was not found.");await writeFile(uploaded,await readFile(local))}
       narration=uploaded;voice="Own voice";hasAudio=true;narrationSource="uploaded voice";
-    } else if (telugu && existsSync(piper) && existsSync(model)) {
+    } else if (piperAvailable) {
       try {
         narration = await piperTts(cleanNarrationText,piper,model,work);
         hasAudio = true;
@@ -1049,7 +1051,7 @@ export async function POST(request: NextRequest) {
         hasAudio = false;
         narrationFailure = error instanceof Error ? error.message : "Piper narration failed";
       }
-    } else if (!piperOnly && process.platform !== "darwin" && canUseKokoroVoice) {
+    } else if ((!piperOnly || allowKokoroAfterMissingPiper) && process.platform !== "darwin" && canUseKokoroVoice) {
       try {
         const kokoroNarration = await kokoroTts(cleanNarrationText, voice, telugu, work);
         if (kokoroNarration) {
@@ -1080,9 +1082,9 @@ export async function POST(request: NextRequest) {
       narrationFailure = !existsSync(piper) ? `Piper executable not found at ${piper}` : `Piper voice model not found at ${model}`;
     } else if (telugu) {
       narrationFailure = piperOnly
-        ? `Local Telugu Piper TTS is selected, but missing ${!existsSync(piper)?piper:model}. Run npm run setup:telugu-tts.`
+        ? `Local Telugu Piper TTS is selected, but missing ${!existsSync(piper)?piper:model}. On Vercel, add HF_API_KEY to use Kokoro fallback, or deploy the render service on Render/Railway and run npm run setup:telugu-tts.`
         : kokoroOnly
-        ? "Kokoro TTS is selected, but HF_API_KEY or KOKORO_TTS_MODEL is missing."
+        ? "Kokoro TTS is selected, but HF_API_KEY is missing."
         : geminiApiKey()
         ? "Online Telugu voice is disabled by provider/account settings."
         : "Online Telugu voice needs GEMINI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or GOOGLE_AI_API_KEY on the render service.";
