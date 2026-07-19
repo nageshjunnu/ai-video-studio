@@ -219,6 +219,21 @@ async function geminiTts(text: string, voice: string, telugu: boolean, work: str
   await run(ffmpeg.path, args);
   return output;
 }
+async function piperTts(text:string,piper:string,model:string,work:string){
+  const output = join(work, "narration.wav");
+  const chunks = narrationChunks(text), files: string[] = [];
+  for (let index = 0; index < chunks.length; index++) {
+    const file = join(work, `narration-${String(index).padStart(3, "0")}.wav`);
+    await runInput(piper,["--model",model,"--output_file",file],chunks[index]);
+    if (!existsSync(file)) throw new Error(`Piper did not create narration chunk ${index + 1}`);
+    files.push(file);
+  }
+  if (files.length === 1) return files[0];
+  const args = files.flatMap(file => ["-i", file]), inputs = files.map((_, index) => `[${index}:a]`).join("");
+  args.push("-filter_complex",`${inputs}concat=n=${files.length}:v=0:a=1[a]`,"-map","[a]","-ac","1","-ar","22050","-c:a","pcm_s16le","-y",output);
+  await run(ffmpeg.path,args);
+  return output;
+}
 function scenesFrom(script: string) {
   const blocks = script
     .split(/\n+/)
@@ -1006,8 +1021,9 @@ export async function POST(request: NextRequest) {
     let narrationSource = "";
     const telugu = /[\u0C00-\u0C7F]/u.test(cleanNarrationText);
     let voice = body.voice || (telugu ? "Padmavathi" : "Samantha");
-    const voiceProvider=(process.env.VOICE_PROVIDER||"kokoro").toLowerCase();
-    const kokoroOnly=voiceProvider!=="gemini";
+    const voiceProvider=(process.env.VOICE_PROVIDER||"piper").toLowerCase();
+    const kokoroOnly=voiceProvider==="kokoro"||voiceProvider==="kokoto";
+    const piperOnly=voiceProvider==="piper"||voiceProvider==="local";
     const canUseKokoroVoice = hasCreatorCreditAccess && !!hfApiKey() && !!process.env.KOKORO_TTS_MODEL;
     const canUseGeminiVoice = voiceProvider==="gemini" && hasCreatorCreditAccess && (providers.geminiTts || (telugu && process.env.VERCEL)) && !!geminiApiKey();
     const rate = Math.max(110, Math.min(220, body.speed ?? 155));
@@ -1023,7 +1039,17 @@ export async function POST(request: NextRequest) {
       if(/^https:\/\//i.test(body.uploadedVoiceUrl)){const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error("Could not download the own-voice narration.");await writeFile(uploaded,Buffer.from(await response.arrayBuffer()))}
       else {const local=join(process.cwd(),"public","uploads","voices",body.uploadedVoiceUrl.split("/").pop()!);if(!existsSync(local))throw new Error("Own-voice narration was not found.");await writeFile(uploaded,await readFile(local))}
       narration=uploaded;voice="Own voice";hasAudio=true;narrationSource="uploaded voice";
-    } else if (process.platform !== "darwin" && canUseKokoroVoice) {
+    } else if (telugu && existsSync(piper) && existsSync(model)) {
+      try {
+        narration = await piperTts(cleanNarrationText,piper,model,work);
+        hasAudio = true;
+        narrationSource = "local Piper Telugu";
+        narrationFailure = "";
+      } catch (error) {
+        hasAudio = false;
+        narrationFailure = error instanceof Error ? error.message : "Piper narration failed";
+      }
+    } else if (!piperOnly && process.platform !== "darwin" && canUseKokoroVoice) {
       try {
         const kokoroNarration = await kokoroTts(cleanNarrationText, voice, telugu, work);
         if (kokoroNarration) {
@@ -1038,7 +1064,7 @@ export async function POST(request: NextRequest) {
           ? "Kokoro TTS could not be reached from this server. Video was created without narration."
           : message;
       }
-    } else if (process.platform !== "darwin" && canUseGeminiVoice) {
+    } else if (!piperOnly && process.platform !== "darwin" && canUseGeminiVoice) {
       try {
         const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
         if (geminiNarration) {
@@ -1050,32 +1076,12 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         narrationFailure = error instanceof Error ? error.message : "Gemini TTS failed";
       }
-    } else if (telugu && existsSync(piper) && existsSync(model)) {
-      narration = join(work, "narration.wav");
-      try {
-        const chunks = narrationChunks(cleanNarrationText), files: string[] = [];
-        for (let index = 0; index < chunks.length; index++) {
-          const file = join(work, `narration-${String(index).padStart(3, "0")}.wav`);
-          await runInput(piper,["--model",model,"--output_file",file],chunks[index]);
-          if (!existsSync(file)) throw new Error(`Piper did not create narration chunk ${index + 1}`);
-          files.push(file);
-        }
-        if (files.length === 1) narration = files[0];
-        else {
-          const args = files.flatMap(file => ["-i", file]), inputs = files.map((_, index) => `[${index}:a]`).join("");
-          args.push("-filter_complex",`${inputs}concat=n=${files.length}:v=0:a=1[a]`,"-map","[a]","-ac","1","-ar","22050","-c:a","pcm_s16le","-y",narration);
-          await run(ffmpeg.path,args);
-        }
-        hasAudio = true;
-        narrationSource = "local Piper";
-      } catch (error) {
-        hasAudio = false;
-        narrationFailure = error instanceof Error ? error.message : "Piper narration failed";
-      }
     } else if (telugu && process.platform === "darwin") {
       narrationFailure = !existsSync(piper) ? `Piper executable not found at ${piper}` : `Piper voice model not found at ${model}`;
     } else if (telugu) {
-      narrationFailure = kokoroOnly
+      narrationFailure = piperOnly
+        ? `Local Telugu Piper TTS is selected, but missing ${!existsSync(piper)?piper:model}. Run npm run setup:telugu-tts.`
+        : kokoroOnly
         ? "Kokoro TTS is selected, but HF_API_KEY or KOKORO_TTS_MODEL is missing."
         : geminiApiKey()
         ? "Online Telugu voice is disabled by provider/account settings."
