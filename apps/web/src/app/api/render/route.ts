@@ -144,6 +144,7 @@ function geminiApiKey() {
 async function geminiTts(text: string, voice: string, telugu: boolean, work: string) {
   const key = geminiApiKey();
   if (!key) return null;
+  const model = process.env.GEMINI_TTS_MODEL || "gemini-3.1-flash-tts-preview";
   const chunks = narrationChunks(text, 900),
     files: string[] = [],
     voiceName = geminiVoiceName(voice, telugu);
@@ -154,9 +155,10 @@ async function geminiTts(text: string, voice: string, telugu: boolean, work: str
         ? `Read the following Telugu narration naturally and clearly. Speak only the narration text.\n\n${chunks[index]}`
         : `Read the following narration naturally and clearly. Speak only the narration text.\n\n${chunks[index]}`;
     let audio = "";
+    let lastError = "";
     for (let attempt = 0; attempt < 2 && !audio; attempt++) {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
         {
           method: "POST",
           headers: {
@@ -177,11 +179,15 @@ async function geminiTts(text: string, voice: string, telugu: boolean, work: str
           signal: AbortSignal.timeout(process.env.VERCEL ? 25_000 : 45_000),
         },
       );
-      if (!response.ok) continue;
+      if (!response.ok) {
+        const message = await response.text().catch(() => "");
+        lastError = `Gemini TTS ${response.status}: ${message.slice(0, 260) || response.statusText}`;
+        continue;
+      }
       const data = await response.json();
       audio = data?.candidates?.[0]?.content?.parts?.find((part: any) => part?.inlineData?.data)?.inlineData?.data ?? "";
     }
-    if (!audio) throw new Error("Gemini TTS did not return audio.");
+    if (!audio) throw new Error(lastError || "Gemini TTS did not return audio.");
     await writeFile(pcm, Buffer.from(audio, "base64"));
     await run(ffmpeg.path, ["-f", "s16le", "-ar", "24000", "-ac", "1", "-i", pcm, "-ac", "1", "-ar", "24000", "-y", wav]);
     files.push(wav);
