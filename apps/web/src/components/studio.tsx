@@ -312,6 +312,7 @@ export function Studio() {
       );
       const response = await trackedFetch(renderEndpoint, {
         method: "POST",
+        skipGlobalLoader: true,
         signal: controller.signal,
         headers: {
           "content-type": "application/json",

@@ -27,11 +27,15 @@ export function finishRequest() {
   emit();
 }
 
-export async function trackedFetch(input: RequestInfo | URL, init?: RequestInit) {
-  startRequest();
+type TrackedRequestInit = RequestInit & { skipGlobalLoader?: boolean };
+
+export async function trackedFetch(input: RequestInfo | URL, init?: TrackedRequestInit) {
+  const skip = init?.skipGlobalLoader;
+  if (!skip) startRequest();
   try {
-    return await fetch(input, init);
+    const { skipGlobalLoader, ...requestInit } = init ?? {};
+    return await fetch(input, requestInit);
   } finally {
-    finishRequest();
+    if (!skip) finishRequest();
   }
 }

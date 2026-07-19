@@ -12,8 +12,8 @@ export function GlobalLoader() {
       <div>
         <i />
         <span>
-          <b>Please wait</b>
-          <small>Working on your request…</small>
+          <b>Drishyana is working</b>
+          <small>Please wait until this action completes…</small>
         </span>
       </div>
     </div>

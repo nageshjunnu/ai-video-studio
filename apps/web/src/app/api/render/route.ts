@@ -198,7 +198,9 @@ async function geminiTts(text: string, voice: string, telugu: boolean, work: str
       );
       if (!response.ok) {
         const message = await response.text().catch(() => "");
-        lastError = `Gemini TTS ${response.status}: ${message.slice(0, 260) || response.statusText}`;
+        lastError = response.status===429
+          ? "Gemini TTS quota/billing is depleted. Add billing or credits in Google AI Studio, or switch to Kokoro/own voice."
+          : `Gemini TTS ${response.status}: ${message.slice(0, 260) || response.statusText}`;
         continue;
       }
       const data = await response.json();
