@@ -1269,7 +1269,7 @@ export function Studio() {
                         ["pixabayImages","Pixabay","Fast stock images and clips","Stock"],
                         ["pexelsImages","Pexels","Alternative licensed photos and clips","Stock"],
                         ["openverseImages","Openverse","Open-license fallback; slower","Open"],
-                        ["huggingFaceImages","Hugging Face","First priority AI images","AI"],
+                        ["huggingFaceImages","FLUX images","First priority AI images via Hugging Face","AI"],
                         ["geminiVisualPrompts","Gemini prompts","Advanced keyword rewrite; slower","AI"],
                         ["geminiTts","Gemini voice","Server narration fallback for Telugu","Voice"],
                         ["relatedVideoClips","Video clips","Insert topic-matched clips; slower","Video"],

@@ -141,6 +141,23 @@ function geminiVoiceName(voice: string, telugu: boolean) {
 function geminiApiKey() {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_AI_API_KEY || "";
 }
+function hfApiKey() {
+  return process.env.HF_API_KEY || process.env.HUGGINGFACE_API_KEY || "";
+}
+async function kokoroTts(text:string,voice:string,telugu:boolean,work:string){
+  const key=hfApiKey(),model=process.env.KOKORO_TTS_MODEL||"hexgrad/Kokoro-82M";
+  if(!key||!process.env.KOKORO_TTS_MODEL)return null;
+  const output=join(work,"kokoro-narration.wav"),raw=join(work,"kokoro-narration.audio");
+  const prompt=telugu?`Read naturally in Telugu:\n${text}`:text;
+  const voiceName=voice==="Venkatesh"?"am_adam":voice.startsWith("Child")?"af_bella":"af_heart";
+  const response=await fetch(`https://api-inference.huggingface.co/models/${model}`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json",accept:"audio/wav"},body:JSON.stringify({inputs:prompt,parameters:{voice:voiceName,speed:1},options:{wait_for_model:false}}),signal:AbortSignal.timeout(process.env.VERCEL?12_000:30_000)});
+  if(!response.ok){const message=await response.text().catch(()=>"");throw new Error(`Kokoro TTS ${response.status}: ${message.slice(0,220)||response.statusText}`)}
+  const bytes=Buffer.from(await response.arrayBuffer());
+  if(!bytes.length)throw new Error("Kokoro TTS did not return audio.");
+  await writeFile(raw,bytes);
+  await run(ffmpeg.path,["-i",raw,"-ac","1","-ar","24000","-y",output]);
+  return output;
+}
 async function geminiTts(text: string, voice: string, telugu: boolean, work: string) {
   const key = geminiApiKey();
   if (!key) return null;
@@ -621,8 +638,8 @@ async function openverseImage(query:string,output:string,seed=0,used=new Set<str
  await writeFile(output,bytes);used.add(selected.foreign_landing_url||selected.url);return{title:selected.title||query,source:selected.foreign_landing_url||selected.url,artist:selected.creator||"Openverse contributor",license:selected.license?.toUpperCase()||"Open license"}
  }catch{return null}}
 async function huggingFaceImage(query:string,scene:string,output:string,seed:number,portrait:boolean):Promise<MediaCredit|null>{
-  const key=process.env.HF_API_KEY||process.env.HUGGINGFACE_API_KEY;if(!key)return null;
-  const model=process.env.HF_IMAGE_MODEL||"stabilityai/stable-diffusion-xl-base-1.0";
+  const key=hfApiKey();if(!key)return null;
+  const model=process.env.HF_IMAGE_MODEL||"black-forest-labs/FLUX.1-schnell";
   try{
     const subject=query.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,160)||"cinematic story scene";
     const context=scene.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,260);
@@ -982,6 +999,7 @@ export async function POST(request: NextRequest) {
     let narrationSource = "";
     const telugu = /[\u0C00-\u0C7F]/u.test(cleanNarrationText);
     let voice = body.voice || (telugu ? "Padmavathi" : "Samantha");
+    const canUseKokoroVoice = hasCreatorCreditAccess && !!hfApiKey() && !!process.env.KOKORO_TTS_MODEL;
     const canUseGeminiVoice = hasCreatorCreditAccess && (providers.geminiTts || (telugu && process.env.VERCEL)) && !!geminiApiKey();
     const rate = Math.max(110, Math.min(220, body.speed ?? 155));
     const root = join(process.cwd(), "../.."),
@@ -996,6 +1014,18 @@ export async function POST(request: NextRequest) {
       if(/^https:\/\//i.test(body.uploadedVoiceUrl)){const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error("Could not download the own-voice narration.");await writeFile(uploaded,Buffer.from(await response.arrayBuffer()))}
       else {const local=join(process.cwd(),"public","uploads","voices",body.uploadedVoiceUrl.split("/").pop()!);if(!existsSync(local))throw new Error("Own-voice narration was not found.");await writeFile(uploaded,await readFile(local))}
       narration=uploaded;voice="Own voice";hasAudio=true;narrationSource="uploaded voice";
+    } else if (process.platform !== "darwin" && canUseKokoroVoice) {
+      try {
+        const kokoroNarration = await kokoroTts(cleanNarrationText, voice, telugu, work);
+        if (kokoroNarration) {
+          narration = kokoroNarration;
+          hasAudio = true;
+          narrationSource = "Kokoro TTS";
+          narrationFailure = "";
+        }
+      } catch (error) {
+        narrationFailure = error instanceof Error ? error.message : "Kokoro TTS failed";
+      }
     } else if (process.platform !== "darwin" && canUseGeminiVoice) {
       try {
         const geminiNarration = await geminiTts(cleanNarrationText, voice, telugu, work);
