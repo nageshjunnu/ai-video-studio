@@ -1120,9 +1120,14 @@ export async function POST(request: NextRequest) {
       }
     }
     if (!hasAudio && !narrationFailure && process.platform !== "darwin") {
-      narrationFailure = geminiApiKey()
-        ? "Server TTS failed or is disabled for this account."
-        : "No server voice is configured. Add GEMINI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or GOOGLE_AI_API_KEY to the render service, or upload an own-voice narration.";
+      narrationFailure = hfApiKey()
+        ? "Server TTS failed or could not be reached from this deployment."
+        : "No server voice is configured. Add HF_API_KEY to the render service for Kokoro fallback, deploy Piper on Render/Railway, or upload an own-voice narration.";
+    }
+    if (telugu && !hasAudio) {
+      throw new Error(
+        `Telugu narration was not created. ${narrationFailure || "Configure Piper on the Render video service or add HF_API_KEY for Kokoro fallback."}`,
+      );
     }
     if(hasAudio&&voice.startsWith("Child")){
       const childNarration=join(work,"narration-child.wav");
