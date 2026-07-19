@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Play, Sparkle } from "@phosphor-icons/react";
 import { API, saveSession } from "@/lib/api";
+import { trackedFetch } from "@/lib/request-loader";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter(),
@@ -17,7 +18,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     const form = new FormData(formElement),
       body = Object.fromEntries(form);
     try {
-      const response = await fetch(`${API}/auth/${mode}`, {
+      const response = await trackedFetch(`${API}/auth/${mode}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),

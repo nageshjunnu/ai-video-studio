@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, clearSession, session } from "@/lib/api";
+import { trackedFetch } from "@/lib/request-loader";
 import {
   House,
   SquaresFour,
@@ -309,7 +310,7 @@ export function Studio() {
         () => controller.abort(),
         externalRenderer ? 900_000 : shortRender ? 285_000 : 295_000,
       );
-      const response = await fetch(renderEndpoint, {
+      const response = await trackedFetch(renderEndpoint, {
         method: "POST",
         signal: controller.signal,
         headers: {
@@ -411,7 +412,7 @@ export function Studio() {
   async function uploadNarration(file?:File){
     if(!file)return;
     setUploadingNarration(true);setRenderError("");
-    try{const form=new FormData();form.append("voice",file);const response=await fetch("/api/voice-upload",{method:"POST",body:form}),data=await response.json();if(!response.ok)throw new Error(data.error||"Narration upload failed");setOwnVoice(data);setVoice("Own voice")}
+    try{const form=new FormData();form.append("voice",file);const response=await trackedFetch("/api/voice-upload",{method:"POST",body:form}),data=await response.json();if(!response.ok)throw new Error(data.error||"Narration upload failed");setOwnVoice(data);setVoice("Own voice")}
     catch(error){setRenderError(error instanceof Error?error.message:"Narration upload failed")}
     finally{setUploadingNarration(false)}
   }
@@ -426,7 +427,7 @@ export function Studio() {
       recorder.start();setRecordingNarration(true);
     }catch{setRenderError("Microphone permission was denied or no microphone is available.")}
   }
-  async function uploadMusic(file?:File){if(!file)return;setRenderError("");try{const form=new FormData();form.append("voice",file);const response=await fetch("/api/voice-upload",{method:"POST",body:form}),data=await response.json();if(!response.ok)throw new Error(data.error||"Music upload failed");setBackgroundMusic(data);setBackgroundMusicPreset("")}catch(error){setRenderError(error instanceof Error?error.message:"Music upload failed")}}
+  async function uploadMusic(file?:File){if(!file)return;setRenderError("");try{const form=new FormData();form.append("voice",file);const response=await trackedFetch("/api/voice-upload",{method:"POST",body:form}),data=await response.json();if(!response.ok)throw new Error(data.error||"Music upload failed");setBackgroundMusic(data);setBackgroundMusicPreset("")}catch(error){setRenderError(error instanceof Error?error.message:"Music upload failed")}}
   async function uploadMedia(files?: FileList) {
     if (!files?.length) return;
     setUploadingMedia(true);
@@ -436,7 +437,7 @@ export function Studio() {
       Array.from(files)
         .slice(0, 12)
         .forEach((file) => form.append("media", file));
-      const response = await fetch("/api/media-upload", {
+      const response = await trackedFetch("/api/media-upload", {
         method: "POST",
         body: form,
       });
@@ -458,7 +459,7 @@ export function Studio() {
     setGeneratingScript(true);
     setRenderError("");
     try {
-      const r = await fetch("/api/script-generate", {
+      const r = await trackedFetch("/api/script-generate", {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -488,7 +489,7 @@ export function Studio() {
     }
     setGeneratingScript(true);
     try {
-      const r = await fetch("/api/script-generate", {
+      const r = await trackedFetch("/api/script-generate", {
           method: "POST",
           headers: {
             "content-type": "application/json",
