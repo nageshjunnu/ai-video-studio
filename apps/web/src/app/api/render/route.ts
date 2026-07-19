@@ -489,6 +489,11 @@ function teluguVisualQueries(text:string,index=0){
   const found=groups.find(([pattern])=>pattern.test(source))?.[1];
   return found?.[index%found.length]??null;
 }
+function visualEnglishText(text:string,index=0){
+  const mapped=teluguVisualQueries(text,index);
+  const ascii=text.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim();
+  return (mapped||ascii||"cinematic Indian story scene").slice(0,260);
+}
 type MediaCredit = {
   title: string;
   source: string;
@@ -641,9 +646,9 @@ async function huggingFaceImage(query:string,scene:string,output:string,seed:num
   const key=hfApiKey();if(!key)return null;
   const model=process.env.HF_IMAGE_MODEL||"black-forest-labs/FLUX.1-schnell";
   try{
-    const subject=query.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,160)||"cinematic story scene";
-    const context=scene.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,260);
-    const prompt=`${subject}. Cinematic documentary frame, realistic high quality, rich detail, full screen composition, natural light. Scene context: ${context}. No text, no watermark, no logo.`;
+    const subject=visualEnglishText(query,seed).slice(0,180);
+    const context=visualEnglishText(scene,seed+1);
+    const prompt=`${subject}. ${context}. Cinematic documentary frame, realistic high quality, rich detail, full screen composition, natural light, culturally accurate Indian visuals where relevant. No text, no watermark, no logo.`;
     const response=await fetch(`https://api-inference.huggingface.co/models/${model}`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json",accept:"image/png"},body:JSON.stringify({inputs:prompt,parameters:{negative_prompt:"text, watermark, logo, blurry, low quality, distorted",width:portrait?768:1024,height:portrait?1024:576,num_inference_steps:process.env.VERCEL?12:14,guidance_scale:7,seed},options:{wait_for_model:false}}),signal:AbortSignal.timeout(process.env.VERCEL?6_000:8_000)});
     if(!response.ok)return null;
     const type=response.headers.get("content-type")||"";
@@ -1167,7 +1172,7 @@ export async function POST(request: NextRequest) {
     const randomOffset = Math.floor(Math.random() * 1000),
       globalKeywords = scriptKeywords(title, script),
       promptLimit = !hasRealPaidAccess || !providers.geminiVisualPrompts || shortScript ? 0 : process.env.VERCEL ? 4 : 8,
-      mediaDeadline = Date.now() + (quickScript ? process.env.VERCEL ? 4_500 : 7_000 : shortScript ? process.env.VERCEL ? 7_000 : 10_000 : process.env.VERCEL ? 25_000 : 75_000);
+      mediaDeadline = Date.now() + (quickScript ? process.env.VERCEL ? 4_500 : 16_000 : shortScript ? process.env.VERCEL ? 7_000 : 24_000 : process.env.VERCEL ? 25_000 : 75_000);
     const promptPlans = await Promise.all(
       scenes.slice(0, Math.min(scenes.length, promptLimit)).map(async (scene, i) => {
         const sceneImageQuery = mediaQuery(scene, i),
@@ -1223,7 +1228,7 @@ export async function POST(request: NextRequest) {
           imageDownloads < (quickScript ? Math.min(3, scenes.length) : shortScript ? Math.min(4, scenes.length) : process.env.VERCEL ? 6 : Math.min(14, scenes.length))
         ) {
           const candidate = join(work, `media-${imageDownloads}.jpg`);
-          const canUseHuggingFaceImages=providers.huggingFaceImages&&(hasRealPaidAccess||(!process.env.VERCEL&&!!hfApiKey()));
+          const canUseHuggingFaceImages=providers.huggingFaceImages&&(hasCreatorCreditAccess||(!process.env.VERCEL&&!!hfApiKey()));
           let credit = canUseHuggingFaceImages&&Date.now()<mediaDeadline?await huggingFaceImage(imageSearch,scenes[i],candidate,randomOffset+i+43,portrait):null;
           if(!credit&&Date.now()<mediaDeadline)credit=(providers.pixabayImages?await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null);
           if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(canUseHuggingFaceImages?await huggingFaceImage(`${keywordContext} ${sceneImageQuery}`,scenes[i],candidate,randomOffset+i+47,portrait):null)??(providers.pixabayImages?await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null);
