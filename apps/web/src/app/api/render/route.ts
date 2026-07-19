@@ -1006,8 +1006,10 @@ export async function POST(request: NextRequest) {
     let narrationSource = "";
     const telugu = /[\u0C00-\u0C7F]/u.test(cleanNarrationText);
     let voice = body.voice || (telugu ? "Padmavathi" : "Samantha");
+    const voiceProvider=(process.env.VOICE_PROVIDER||"").toLowerCase();
+    const kokoroOnly=voiceProvider==="kokoro"||voiceProvider==="kokoto";
     const canUseKokoroVoice = hasCreatorCreditAccess && !!hfApiKey() && !!process.env.KOKORO_TTS_MODEL;
-    const canUseGeminiVoice = hasCreatorCreditAccess && (providers.geminiTts || (telugu && process.env.VERCEL)) && !!geminiApiKey();
+    const canUseGeminiVoice = !kokoroOnly && hasCreatorCreditAccess && (providers.geminiTts || (telugu && process.env.VERCEL)) && !!geminiApiKey();
     const rate = Math.max(110, Math.min(220, body.speed ?? 155));
     const root = join(process.cwd(), "../.."),
       piper = join(root, ".venv", "bin", "piper"),
@@ -1070,7 +1072,9 @@ export async function POST(request: NextRequest) {
     } else if (telugu && process.platform === "darwin") {
       narrationFailure = !existsSync(piper) ? `Piper executable not found at ${piper}` : `Piper voice model not found at ${model}`;
     } else if (telugu) {
-      narrationFailure = geminiApiKey()
+      narrationFailure = kokoroOnly
+        ? "Kokoro TTS is selected, but HF_API_KEY or KOKORO_TTS_MODEL is missing."
+        : geminiApiKey()
         ? "Online Telugu voice is disabled by provider/account settings."
         : "Online Telugu voice needs GEMINI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or GOOGLE_AI_API_KEY on the render service.";
     }
