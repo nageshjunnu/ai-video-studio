@@ -621,7 +621,7 @@ async function huggingFaceImage(query:string,scene:string,output:string,seed:num
     const subject=query.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,160)||"cinematic story scene";
     const context=scene.replace(/[^a-zA-Z0-9 ,.-]/g," ").replace(/\s+/g," ").trim().slice(0,260);
     const prompt=`${subject}. Cinematic documentary frame, realistic high quality, rich detail, full screen composition, natural light. Scene context: ${context}. No text, no watermark, no logo.`;
-    const response=await fetch(`https://api-inference.huggingface.co/models/${model}`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json",accept:"image/png"},body:JSON.stringify({inputs:prompt,parameters:{negative_prompt:"text, watermark, logo, blurry, low quality, distorted",width:portrait?768:1024,height:portrait?1024:576,num_inference_steps:18,guidance_scale:7,seed},options:{wait_for_model:false}}),signal:AbortSignal.timeout(process.env.VERCEL?9_000:15_000)});
+    const response=await fetch(`https://api-inference.huggingface.co/models/${model}`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json",accept:"image/png"},body:JSON.stringify({inputs:prompt,parameters:{negative_prompt:"text, watermark, logo, blurry, low quality, distorted",width:portrait?768:1024,height:portrait?1024:576,num_inference_steps:process.env.VERCEL?12:18,guidance_scale:7,seed},options:{wait_for_model:false}}),signal:AbortSignal.timeout(process.env.VERCEL?6_000:15_000)});
     if(!response.ok)return null;
     const type=response.headers.get("content-type")||"";
     if(!type.startsWith("image/"))return null;
@@ -928,10 +928,10 @@ export async function POST(request: NextRequest) {
   }
   const hasRealPaidAccess = account?.role === "ADMIN" || account?.hasPaid === true;
   const hasCreatorCreditAccess = hasRealPaidAccess || Number(account?.credits ?? 0) > 0;
-  let providers={pixabayImages:true,pexelsImages:true,openverseImages:false,huggingFaceImages:false,geminiVisualPrompts:false,geminiTts:true,relatedVideoClips:false};
+  let providers={pixabayImages:true,pexelsImages:true,openverseImages:false,huggingFaceImages:true,geminiVisualPrompts:false,geminiTts:true,relatedVideoClips:false};
   if(authorization){try{const response=await fetch(`${serverApiUrl()}/creator-tools/access`,{headers:{authorization},cache:"no-store"}),access=response.ok?await response.json():null;providers={...providers,...(access?.thirdParty??{})}}catch{}}
   if(account?.role==="ADMIN"&&body.providerOverrides)providers={...providers,...body.providerOverrides};
-  if(process.env.VERCEL&&account?.role!=="ADMIN"){providers={...providers,openverseImages:false,huggingFaceImages:false,geminiVisualPrompts:false,relatedVideoClips:false}}
+  if(process.env.VERCEL&&account?.role!=="ADMIN"){providers={...providers,openverseImages:false,geminiVisualPrompts:false,relatedVideoClips:false}}
   let showBranding=true;
   if(body.showBranding===false)showBranding=!hasRealPaidAccess;
   if (body.useRelatedVideos) {
@@ -1187,10 +1187,10 @@ export async function POST(request: NextRequest) {
           imageDownloads < (quickScript ? Math.min(3, scenes.length) : shortScript ? Math.min(4, scenes.length) : process.env.VERCEL ? 6 : Math.min(14, scenes.length))
         ) {
           const candidate = join(work, `media-${imageDownloads}.jpg`);
-          let credit = (providers.pixabayImages?await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null);
-          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(providers.pixabayImages?await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null);
+          let credit = providers.huggingFaceImages&&hasRealPaidAccess&&Date.now()<mediaDeadline?await huggingFaceImage(imageSearch,scenes[i],candidate,randomOffset+i+43,portrait):null;
+          if(!credit&&Date.now()<mediaDeadline)credit=(providers.pixabayImages?await pixabayImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(imageSearch,candidate,randomOffset+i,portrait,usedImages):null);
+          if(!credit&&Date.now()<mediaDeadline&&imageSearch!==sceneImageQuery)credit=(providers.huggingFaceImages&&hasRealPaidAccess?await huggingFaceImage(`${keywordContext} ${sceneImageQuery}`,scenes[i],candidate,randomOffset+i+47,portrait):null)??(providers.pixabayImages?await pixabayImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null)??(providers.pexelsImages?await pexelsImage(`${keywordContext} ${sceneImageQuery}`,candidate,randomOffset+i+17,portrait,usedImages):null);
           if(!credit&&!shortScript&&providers.openverseImages&&Date.now()<mediaDeadline)credit=await openverseImage(imageSearch,candidate,randomOffset+i+31,usedImages);
-          if(!credit&&!shortScript&&providers.huggingFaceImages&&hasRealPaidAccess&&Date.now()<mediaDeadline)credit=await huggingFaceImage(imageSearch,scenes[i],candidate,randomOffset+i+43,portrait);
           if(!credit&&!shortScript&&!process.env.VERCEL&&imageDownloads<3&&Date.now()<mediaDeadline)credit=await generatedSceneImage(imageSearch,scenes[i],candidate,randomOffset+i+53,portrait);
           imageDownloads++;
           if (credit) {

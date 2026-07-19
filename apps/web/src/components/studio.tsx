@@ -128,7 +128,7 @@ export function Studio() {
   >([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [useRelatedVideos, setUseRelatedVideos] = useState(false);
-  const fastProviderPreset={pixabayImages:true,pexelsImages:true,openverseImages:false,huggingFaceImages:false,geminiVisualPrompts:false,geminiTts:true,relatedVideoClips:false};
+  const fastProviderPreset={pixabayImages:true,pexelsImages:true,openverseImages:false,huggingFaceImages:true,geminiVisualPrompts:false,geminiTts:true,relatedVideoClips:false};
   const [providerOverrides,setProviderOverrides]=useState(fastProviderPreset);
   const [videoTitle, setVideoTitle] = useState("");
   const [showTitleScreen, setShowTitleScreen] = useState(true);
@@ -1269,7 +1269,7 @@ export function Studio() {
                         ["pixabayImages","Pixabay","Fast stock images and clips","Stock"],
                         ["pexelsImages","Pexels","Alternative licensed photos and clips","Stock"],
                         ["openverseImages","Openverse","Open-license fallback; slower","Open"],
-                        ["huggingFaceImages","Hugging Face","AI image fallback; testing only","AI"],
+                        ["huggingFaceImages","Hugging Face","First priority AI images","AI"],
                         ["geminiVisualPrompts","Gemini prompts","Advanced keyword rewrite; slower","AI"],
                         ["geminiTts","Gemini voice","Server narration fallback for Telugu","Voice"],
                         ["relatedVideoClips","Video clips","Insert topic-matched clips; slower","Video"],
