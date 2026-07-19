@@ -1006,10 +1006,10 @@ export async function POST(request: NextRequest) {
     let narrationSource = "";
     const telugu = /[\u0C00-\u0C7F]/u.test(cleanNarrationText);
     let voice = body.voice || (telugu ? "Padmavathi" : "Samantha");
-    const voiceProvider=(process.env.VOICE_PROVIDER||"").toLowerCase();
-    const kokoroOnly=voiceProvider==="kokoro"||voiceProvider==="kokoto";
+    const voiceProvider=(process.env.VOICE_PROVIDER||"kokoro").toLowerCase();
+    const kokoroOnly=voiceProvider!=="gemini";
     const canUseKokoroVoice = hasCreatorCreditAccess && !!hfApiKey() && !!process.env.KOKORO_TTS_MODEL;
-    const canUseGeminiVoice = !kokoroOnly && hasCreatorCreditAccess && (providers.geminiTts || (telugu && process.env.VERCEL)) && !!geminiApiKey();
+    const canUseGeminiVoice = voiceProvider==="gemini" && hasCreatorCreditAccess && (providers.geminiTts || (telugu && process.env.VERCEL)) && !!geminiApiKey();
     const rate = Math.max(110, Math.min(220, body.speed ?? 155));
     const root = join(process.cwd(), "../.."),
       piper = join(root, ".venv", "bin", "piper"),
