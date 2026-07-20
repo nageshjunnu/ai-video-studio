@@ -13,6 +13,32 @@ import { serverApiUrl } from "@/lib/server-api";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+function corsHeaders(request?: NextRequest) {
+  const origin = request?.headers.get("origin") || "";
+  const configured = (process.env.WEB_URL || process.env.NEXT_PUBLIC_WEB_URL || "")
+    .split(",")
+    .map((value) => value.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  const allowed =
+    !origin ||
+    configured.includes(origin.replace(/\/$/, "")) ||
+    /^https:\/\/ai-video-studio(?:-api)?-[a-z0-9-]+-nageshjunnus-projects\.vercel\.app$/i.test(origin) ||
+    origin === "https://ai-video-studio-api.vercel.app" ||
+    (process.env.NODE_ENV !== "production" && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/i.test(origin));
+
+  return {
+    "Access-Control-Allow-Origin": allowed ? origin || "*" : configured[0] || "https://ai-video-studio-api.vercel.app",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, content-type",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
+  };
+}
+
+export function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(request) });
+}
+
 type RenderInput = {
   title?: string;
   showTitleScreen?: boolean;
@@ -1417,11 +1443,11 @@ export async function POST(request: NextRequest) {
         mediaMs,
         ffmpegMs,
       },
-    });
+    }, { headers: corsHeaders(request) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Rendering failed" },
-      { status: 500 },
+      { status: 500, headers: corsHeaders(request) },
     );
   } finally {
     await rm(work, { recursive: true, force: true });
