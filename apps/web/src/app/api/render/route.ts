@@ -150,7 +150,8 @@ async function kokoroTts(text:string,voice:string,telugu:boolean,work:string){
   const output=join(work,"kokoro-narration.wav"),raw=join(work,"kokoro-narration.audio");
   const prompt=telugu?`Read naturally in Telugu:\n${text}`:text;
   const voiceName=voice==="Venkatesh"?"am_adam":voice.startsWith("Child")?"af_bella":"af_heart";
-  const response=await fetch(`https://api-inference.huggingface.co/models/${model}`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json",accept:"audio/wav"},body:JSON.stringify({inputs:prompt,parameters:{voice:voiceName,speed:1},options:{wait_for_model:false}}),signal:AbortSignal.timeout(process.env.VERCEL?12_000:30_000)});
+  const timeout = Number(process.env.KOKORO_TTS_TIMEOUT_MS || (process.env.VERCEL ? 45_000 : 60_000));
+  const response=await fetch(`https://api-inference.huggingface.co/models/${model}`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json",accept:"audio/wav"},body:JSON.stringify({inputs:prompt,parameters:{voice:voiceName,speed:1},options:{wait_for_model:true,use_cache:false}}),signal:AbortSignal.timeout(timeout)});
   if(!response.ok){const message=await response.text().catch(()=>"");throw new Error(`Kokoro TTS ${response.status}: ${message.slice(0,220)||response.statusText}`)}
   const bytes=Buffer.from(await response.arrayBuffer());
   if(!bytes.length)throw new Error("Kokoro TTS did not return audio.");
@@ -1062,8 +1063,8 @@ export async function POST(request: NextRequest) {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Kokoro TTS failed";
-        narrationFailure = message === "fetch failed"
-          ? "Kokoro TTS could not be reached from this server. Video was created without narration."
+        narrationFailure = message === "fetch failed" || message.includes("timed out") || message.includes("aborted")
+          ? `Kokoro TTS could not be reached from this server before timeout. Check HF_API_KEY, KOKORO_TTS_MODEL=${process.env.KOKORO_TTS_MODEL||"hexgrad/Kokoro-82M"}, and try KOKORO_TTS_TIMEOUT_MS=60000.`
           : message;
       }
     } else if (!piperOnly && process.platform !== "darwin" && canUseGeminiVoice) {
