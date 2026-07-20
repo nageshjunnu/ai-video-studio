@@ -1036,7 +1036,6 @@ export async function POST(request: NextRequest) {
           : "te_IN-padmavathi-medium",
       model = join(root, "models", "piper", `${modelName}.onnx`);
     const piperAvailable = telugu && existsSync(piper) && existsSync(model);
-    const allowKokoroAfterMissingPiper = piperOnly && process.env.VERCEL && !piperAvailable;
     if (body.uploadedVoiceUrl) {
       const uploaded=join(work,"own-voice.audio");
       if(/^https:\/\//i.test(body.uploadedVoiceUrl)){const response=await fetch(body.uploadedVoiceUrl,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error("Could not download the own-voice narration.");await writeFile(uploaded,Buffer.from(await response.arrayBuffer()))}
@@ -1052,7 +1051,7 @@ export async function POST(request: NextRequest) {
         hasAudio = false;
         narrationFailure = error instanceof Error ? error.message : "Piper narration failed";
       }
-    } else if ((!piperOnly || allowKokoroAfterMissingPiper) && process.platform !== "darwin" && canUseKokoroVoice) {
+    } else if (!piperOnly && process.platform !== "darwin" && canUseKokoroVoice) {
       try {
         const kokoroNarration = await kokoroTts(cleanNarrationText, voice, telugu, work);
         if (kokoroNarration) {
