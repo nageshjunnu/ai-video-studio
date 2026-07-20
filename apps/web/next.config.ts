@@ -6,6 +6,27 @@ loadEnvConfig(path.join(__dirname, '../..'));
 
 const nextConfig: NextConfig = {
  reactStrictMode: true,
+ async headers() {
+  return [
+   {
+    source: '/api/render',
+    headers: [
+     { key: 'Access-Control-Allow-Origin', value: '*' },
+     { key: 'Access-Control-Allow-Methods', value: 'POST, OPTIONS' },
+     { key: 'Access-Control-Allow-Headers', value: 'authorization, content-type' },
+     { key: 'Access-Control-Max-Age', value: '86400' },
+    ],
+   },
+   {
+    source: '/api/render-health',
+    headers: [
+     { key: 'Access-Control-Allow-Origin', value: '*' },
+     { key: 'Access-Control-Allow-Methods', value: 'GET, OPTIONS' },
+     { key: 'Access-Control-Allow-Headers', value: 'authorization, content-type' },
+    ],
+   },
+  ];
+ },
  serverExternalPackages: [
   '@ffmpeg-installer/ffmpeg',
   '@ffmpeg-installer/linux-x64',
